@@ -1,0 +1,1624 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>샷라인 검출엔진 v1</title>
+<style>
+/* ============================================================
+   저사양 아이패드 대응: 그라디언트/그림자/블러 사용하지 않음
+   ============================================================ */
+:root{
+  --ink:#12161D; --ink60:#5A6270; --ink40:#8C93A0;
+  --bg:#EDEFF2; --card:#FFFFFF; --line:#D6DAE0;
+  --lane:#123D6B; --shot:#E2452F; --gain:#17A67C; --warn:#C77700;
+  --mono:ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;
+  font-size:15px; line-height:1.5;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overscroll-behavior:none;
+}
+.wrap{max-width:1400px;margin:0 auto;padding:12px}
+h1{font-size:18px;margin:0 0 2px;letter-spacing:-.02em}
+.sub{font-size:12px;color:var(--ink60);margin:0 0 12px;font-family:var(--mono)}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:12px;align-items:start}
+@media(max-width:1000px){.grid{grid-template-columns:1fr}}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
+.card h2{font-size:13px;margin:0 0 8px;letter-spacing:.02em;color:var(--ink60);
+  text-transform:uppercase;font-family:var(--mono);font-weight:600}
+
+/* ---------- 영상 ---------- */
+#stage{position:relative;background:#000;border-radius:8px;overflow:hidden;line-height:0}
+#video{width:100%;display:block;background:#000}
+#overlay{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none}
+#stage.calib{cursor:crosshair}
+
+#loupe{
+  position:absolute;width:180px;height:180px;border-radius:50%;
+  border:3px solid #fff;overflow:hidden;pointer-events:none;display:none;z-index:5;
+  background:#000
+}
+#loupe canvas{width:180px;height:180px;display:block}
+#loupeX{position:absolute;left:0;top:0;width:180px;height:180px;pointer-events:none}
+
+.badge{
+  position:absolute;left:8px;top:8px;z-index:4;
+  font-family:var(--mono);font-size:11px;color:#fff;background:rgba(0,0,0,.62);
+  padding:4px 8px;border-radius:5px;line-height:1.45;white-space:pre
+}
+.hint{
+  position:absolute;left:50%;transform:translateX(-50%);bottom:10px;z-index:4;
+  font-size:13px;color:#fff;background:rgba(0,0,0,.7);padding:7px 14px;border-radius:8px;
+  text-align:center;max-width:90%
+}
+
+/* ---------- 버튼 ---------- */
+.btnrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+button{
+  font-family:inherit;font-size:14px;font-weight:600;border:0;border-radius:8px;
+  padding:11px 14px;cursor:pointer;background:var(--lane);color:#fff;
+  flex:1 1 auto;min-width:96px
+}
+button.ghost{background:#E3E8EE;color:var(--lane)}
+button.warn{background:var(--warn)}
+button.danger{background:var(--shot)}
+button.sm{padding:7px 10px;font-size:12.5px;min-width:0;flex:0 0 auto}
+button:disabled{opacity:.4}
+button:active{opacity:.75}
+
+/* ---------- 수치판 ---------- */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.stats div{background:var(--card);padding:7px 9px}
+.stats dt{font-family:var(--mono);font-size:9.5px;color:var(--ink40);letter-spacing:.05em}
+.stats dd{margin:1px 0 0;font-family:var(--mono);font-size:17px;font-weight:600}
+.stats dd small{font-size:10px;font-weight:400;color:var(--ink40)}
+
+/* ---------- 설정 ---------- */
+.field{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;
+  padding:6px 0;border-bottom:1px solid var(--line)}
+.field:last-child{border-bottom:0}
+.field label{font-size:13px}
+.field label i{display:block;font-style:normal;font-size:11px;color:var(--ink40);
+  font-family:var(--mono);margin-top:1px}
+.field input[type=number]{width:88px;padding:6px 8px;border:1px solid var(--line);
+  border-radius:6px;font-family:var(--mono);font-size:14px;text-align:right}
+.field input[type=range]{width:150px}
+.field .rv{font-family:var(--mono);font-size:13px;font-weight:600;min-width:52px;text-align:right}
+.rowr{display:flex;align-items:center;gap:8px}
+
+/* ---------- 표 ---------- */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left}
+th{font-family:var(--mono);font-size:9.5px;color:var(--ink40);text-transform:uppercase;font-weight:600}
+td.n{font-family:var(--mono);text-align:right}
+td.miss{color:var(--shot)}
+.scroll{max-height:270px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+
+#log{font-family:var(--mono);font-size:10.5px;line-height:1.55;color:var(--ink60);
+  max-height:150px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+
+.note{font-size:12px;color:var(--ink60);line-height:1.6;margin:8px 0 0}
+.note b{color:var(--ink)}
+.tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:1px 6px;
+  border-radius:99px;border:1px solid var(--line);color:var(--ink60)}
+.tag.ok{background:#E6F5F0;border-color:#9BD8C5;color:#0F7A5B}
+.tag.bad{background:#FCE9E6;border-color:#F0B3A8;color:#B02D18}
+.tag.mid{background:#FBF0DC;border-color:#E5C88A;color:#8A5A00}
+details{margin-top:6px}
+summary{font-size:12.5px;color:var(--lane);cursor:pointer;font-weight:600;padding:4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>샷라인 · 레이저 검출 엔진 v1</h1>
+  <p class="sub">SHOTLINE DETECTION ENGINE — 현장 실측/튜닝용</p>
+
+  <div class="grid">
+
+    <!-- ================= 왼쪽: 영상 ================= -->
+    <div>
+      <div class="card">
+        <div id="stage">
+          <video id="video" playsinline muted autoplay></video>
+          <canvas id="overlay"></canvas>
+          <div class="badge" id="badge">카메라 대기</div>
+          <div class="hint" id="hint" style="display:none"></div>
+          <div id="loupe"><canvas id="loupeC" width="180" height="180"></canvas>
+            <svg id="loupeX" viewBox="0 0 180 180">
+              <line x1="90" y1="60" x2="90" y2="82" stroke="#E2452F" stroke-width="2"/>
+              <line x1="90" y1="98" x2="90" y2="120" stroke="#E2452F" stroke-width="2"/>
+              <line x1="60" y1="90" x2="82" y2="90" stroke="#E2452F" stroke-width="2"/>
+              <line x1="98" y1="90" x2="120" y2="90" stroke="#E2452F" stroke-width="2"/>
+              <circle cx="90" cy="90" r="1.6" fill="#E2452F"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="btnrow">
+          <button id="bStart">카메라 시작</button>
+          <button id="bCalib" class="ghost" disabled>표적 맞추기</button>
+          <button id="bBg" class="ghost" disabled>배경 학습</button>
+          <button id="bRun" disabled>검출 시작</button>
+        </div>
+        <div class="btnrow">
+          <button id="bProbe" class="ghost sm" disabled>신호 강도 측정</button>
+          <button id="bReset" class="ghost sm" disabled>탄착 지우기</button>
+          <button id="bTarget" class="ghost sm">샷라인 표적</button>
+          <button id="bIssf" class="ghost sm">ISSF 표적</button>
+          <button id="bCsv" class="ghost sm" disabled>CSV 저장</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>실시간 수치</h2>
+        <dl class="stats">
+          <div><dt>FPS</dt><dd id="mFps">–</dd></div>
+          <div><dt>처리시간</dt><dd id="mMs">–<small>ms</small></dd></div>
+          <div><dt>검출 발수</dt><dd id="mShots">0</dd></div>
+          <div><dt>표적이탈</dt><dd id="mMiss">0</dd></div>
+        </dl>
+        <dl class="stats" style="margin-top:6px">
+          <div><dt>해상도</dt><dd id="mRes" style="font-size:13px">–</dd></div>
+          <div><dt>정밀도</dt><dd id="mMmpx" style="font-size:13px">–</dd></div>
+          <div><dt>평균 점수</dt><dd id="mAvg">–</dd></div>
+          <div><dt>탄착군</dt><dd id="mGroup">–<small>mm</small></dd></div>
+        </dl>
+        <p class="note" id="qualityNote"></p>
+      </div>
+
+      <div class="card">
+        <h2>탄착 기록</h2>
+        <div class="scroll">
+          <table>
+            <thead><tr>
+              <th>#</th><th class="n">x(mm)</th><th class="n">y(mm)</th>
+              <th class="n">점수</th><th class="n">소수점</th>
+              <th class="n">프레임</th><th class="n">신호</th>
+            </tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 오른쪽: 설정 ================= -->
+    <div>
+      <div class="card">
+        <h2>표적 규격</h2>
+        <div class="field">
+          <label>표적 프리셋<i>고르면 아래 값이 자동으로 채워집니다</i></label>
+          <select id="cfgPreset" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px">
+            <option value="own300">샷라인 자체 표적 300mm</option>
+            <option value="lh4">LaserHIT 25M · 1:4 (A4 원본)</option>
+            <option value="lh3">LaserHIT 25M · 1:3 (A4 133%)</option>
+            <option value="lh2">LaserHIT 25M · 1:2 (A3 200%)</option>
+            <option value="issf25">ISSF 25m 정밀권총 원본 500mm</option>
+            <option value="custom">직접 입력</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>캘리브레이션 방식<i>화면에서 무엇을 찍을 것인가</i></label>
+          <select id="cfgMode" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px">
+            <option value="square">정사각형 네 모서리</option>
+            <option value="ring">링 위 네 점 (12·3·6·9시)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>캘리브레이션 기준 치수<i id="labCalib">찍을 정사각형의 한 변 (mm)</i></label>
+          <input type="number" id="cfgCalib" value="300" min="20" max="2000" step="0.5">
+        </div>
+        <div class="field">
+          <label>채점용 링 지름<i>최외곽(1점) 링의 바깥 지름 (mm)</i></label>
+          <input type="number" id="cfgDia" value="300" min="20" max="2000" step="0.5">
+        </div>
+        <div class="field">
+          <label>링 수<i>10점부터 1점까지</i></label>
+          <input type="number" id="cfgRings" value="10" min="3" max="20" step="1">
+        </div>
+        <p class="note" id="presetNote">앱은 인쇄된 링을 보지 않고 <b>지정한 네 점 + 위 수치</b>로 점수를 계산합니다.
+        캘리브레이션 기준과 채점 기준이 서로 다른 표적(예: LaserHIT)도 지원합니다.</p>
+      </div>
+
+      <div class="card">
+        <h2>검출 파라미터</h2>
+        <div class="field">
+          <label>적색 임계값<i>0~100 — 붉은 기운이 여유의 몇 % 를 채웠는가</i></label>
+          <span class="rowr"><input type="range" id="cfgRed" min="5" max="100" value="22"><span class="rv" id="vRed">22</span></span>
+        </div>
+        <div class="field">
+          <label>밝기 임계값<i>0~100 — 흰색으로 포화된 코어 대응</i></label>
+          <span class="rowr"><input type="range" id="cfgLum" min="10" max="100" value="38"><span class="rv" id="vLum">38</span></span>
+        </div>
+        <div class="field">
+          <label>최소 면적<i>minArea — 잡음 제거</i></label>
+          <span class="rowr"><input type="range" id="cfgMinA" min="1" max="60" value="4"><span class="rv" id="vMinA">4</span></span>
+        </div>
+        <div class="field">
+          <label>최대 면적<i>maxArea — 조명/반사 제거</i></label>
+          <span class="rowr"><input type="range" id="cfgMaxA" min="50" max="4000" value="900" step="50"><span class="rv" id="vMaxA">900</span></span>
+        </div>
+        <div class="field">
+          <label>확정 프레임 수<i>minFrames — 1이면 짧은 펄스도 포착</i></label>
+          <span class="rowr"><input type="range" id="cfgMinF" min="1" max="6" value="1"><span class="rv" id="vMinF">1</span></span>
+        </div>
+        <div class="field">
+          <label>재격발 대기<i>cooldown — 같은 발 중복 방지</i></label>
+          <span class="rowr"><input type="range" id="cfgCool" min="80" max="1200" value="300" step="20"><span class="rv" id="vCool">300</span></span>
+        </div>
+        <div class="field">
+          <label>표적 이탈 검출<i>화각 전체를 낮은 해상도로 감시</i></label>
+          <span class="rowr"><input type="checkbox" id="cfgMiss" checked style="width:22px;height:22px"></span>
+        </div>
+        <div class="btnrow">
+          <button class="ghost sm" id="bDefaults">기본값 복원</button>
+          <button class="ghost sm" id="bSave">설정 저장</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>신호 강도 측정</h2>
+        <p class="note" style="margin-top:0">임계값을 감으로 정하지 마십시오. 아래 버튼을 누르고
+        표적의 <b>검은 부분</b>과 <b>흰 부분</b>에 각각 레이저를 비춰 실측한 뒤 그 사이 값으로 정하십시오.</p>
+        <div id="probeBox" style="display:none">
+          <dl class="stats" style="margin-top:8px">
+            <div><dt>적색 최대</dt><dd id="pRed">–</dd></div>
+            <div><dt>밝기 최대</dt><dd id="pLum">–</dd></div>
+            <div><dt>바탕 밝기</dt><dd id="pBg">–</dd></div>
+            <div><dt>덩어리 크기</dt><dd id="pArea">–</dd></div>
+          </dl>
+          <p class="note" id="probeAdvice"></p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>진단 로그</h2>
+        <div id="log"></div>
+      </div>
+
+      <div class="card">
+        <h2>사용 순서</h2>
+        <p class="note" style="margin-top:0">
+        <b>1.</b> 표적지를 인쇄해 벽에 붙입니다 (정사각 테두리가 반드시 보이게).<br>
+        <b>2.</b> 태블릿을 표적에서 2m 지점에 고정합니다. 흔들리면 안 됩니다.<br>
+        <b>3.</b> [카메라 시작] → [표적 맞추기]로 네 모서리를 찍습니다.
+        손가락을 대면 돋보기가 뜨고, <b>손을 뗄 때 확정</b>됩니다.<br>
+        <b>4.</b> 아무도 쏘지 않는 상태에서 [배경 학습]을 누릅니다 (2초).<br>
+        <b>5.</b> [신호 강도 측정]으로 임계값을 정합니다.<br>
+        <b>6.</b> [검출 시작] 후 실제로 쏴 봅니다.</p>
+        <details>
+          <summary>레이저 포인터로도 테스트할 수 있습니다</summary>
+          <p class="note">총이 완성되기 전이라도 <b>일반 적색 레이저 포인터</b>로 캘리브레이션과 검출을
+          그대로 검증할 수 있습니다. 포인터는 계속 켜져 있으므로 [확정 프레임 수]를 3 이상으로 올리고,
+          한 지점을 0.5초 비춘 뒤 끄면 1발로 기록됩니다.</p>
+        </details>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   샷라인 검출 엔진 v1
+   --------------------------------------------------------------------------
+   구조
+     1. 수학       : 호모그래피(원근변환) 계산 / 역행렬
+     2. 카메라     : getUserMedia, 최대 해상도·프레임률 요청
+     3. 캘리브레이션: 돋보기 4점 지정
+     4. 배경 모델   : 채널별 평균·표준편차 학습
+     5. 검출       : 이중 경로(표적 ROI 원본해상 / 전체 축소) + 연결성분 + 서브픽셀 무게중심
+     6. 추적       : 시간 필터로 1발 확정, 여러 프레임 평균으로 정밀도 향상
+     7. 점수       : mm 좌표 → 정수 점수 + 소수점 점수
+   ========================================================================== */
+
+/* ===================== 0. 전역 상태 ===================== */
+const S = {
+  stream:null, vw:0, vh:0,          // 영상 원본 해상도
+  quad:null,                        // 캘리브레이션 4점 (영상 원본 px) TL,TR,BR,BL
+  H:null, Hinv:null,                // mm→px, px→mm
+  roi:null,                         // 표적 ROI (원본 px, 정수)
+  bg:null,                          // ROI 배경 모델
+  bgWide:null,                      // 전체화면 배경 모델
+  mode:'idle',                      // idle | calib | bg | run | probe
+  running:false,
+  shots:[], tracks:[], nextId:1,
+  lastEmitAt:0, lastEmitPos:null,
+  frames:0, fpsT:0, fps:0, procMs:0,
+  mmPerPx:0, floodSince:0, floodWarnAt:0,
+  probe:{red:0,lum:0,bg:0,area:0}
+};
+
+const WIDE_W = 480, WIDE_H = 270;   // 이탈 검출용 축소 해상도
+const BG_FRAMES = 60;               // 배경 학습 프레임 수
+
+/* ===================== 1. 수학 ===================== */
+
+/* 8x8 선형계 풀이 (부분 피벗 가우스 소거) */
+function solve8(A, b){
+  const n = 8;
+  const M = A.map((row,i)=>row.concat([b[i]]));
+  for(let c=0;c<n;c++){
+    let piv=c;
+    for(let r=c+1;r<n;r++) if(Math.abs(M[r][c])>Math.abs(M[piv][c])) piv=r;
+    if(Math.abs(M[piv][c])<1e-12) return null;      // 특이행렬 = 네 점이 일직선
+    if(piv!==c){ const t=M[piv]; M[piv]=M[c]; M[c]=t; }
+    const d=M[c][c];
+    for(let k=c;k<=n;k++) M[c][k]/=d;
+    for(let r=0;r<n;r++){
+      if(r===c) continue;
+      const f=M[r][c];
+      if(f===0) continue;
+      for(let k=c;k<=n;k++) M[r][k]-=f*M[c][k];
+    }
+  }
+  return M.map(r=>r[n]);
+}
+
+/* 대응점 4쌍으로 호모그래피 H(src→dst) 계산. 반환 [h11..h33] */
+function homography(src, dst){
+  const A=[], b=[];
+  for(let i=0;i<4;i++){
+    const {x,y}=src[i], {x:u,y:v}=dst[i];
+    A.push([x,y,1,0,0,0,-x*u,-y*u]); b.push(u);
+    A.push([0,0,0,x,y,1,-x*v,-y*v]); b.push(v);
+  }
+  const h=solve8(A,b);
+  if(!h) return null;
+  return [h[0],h[1],h[2], h[3],h[4],h[5], h[6],h[7],1];
+}
+
+function invert3(m){
+  const [a,b,c,d,e,f,g,h,i]=m;
+  const A=e*i-f*h, B=-(d*i-f*g), C=d*h-e*g;
+  const det=a*A+b*B+c*C;
+  if(Math.abs(det)<1e-14) return null;
+  const id=1/det;
+  return [
+    A*id, (c*h-b*i)*id, (b*f-c*e)*id,
+    B*id, (a*i-c*g)*id, (c*d-a*f)*id,
+    C*id, (b*g-a*h)*id, (a*e-b*d)*id
+  ];
+}
+
+function applyH(m, x, y){
+  const w = m[6]*x + m[7]*y + m[8];
+  return { x:(m[0]*x+m[1]*y+m[2])/w, y:(m[3]*x+m[4]*y+m[5])/w };
+}
+
+/* ===================== 2. 설정 ===================== */
+/*  ★ 캘리브레이션 기준과 채점 기준은 별개입니다 ★
+    표적에 따라 '화면에서 정확히 찍을 수 있는 형상'과 '점수를 매기는 링'이 다릅니다.
+      · 샷라인 자체 표적 : 바깥 정사각 테두리 = 최외곽 링 지름  (둘이 같음)
+      · LaserHIT 표적    : 네 귀퉁이의 25M 마커 = 링과 무관한 별도 사각형
+    그래서 두 값을 따로 둡니다.
+      calib : 화면에서 찍을 형상의 실측 치수 (자로 재서 입력)
+      dia   : 최외곽(1점) 링의 바깥 지름                                        */
+const CFG = {
+  mode:'square', calib:300, dia:300, rings:10,
+  red:22, lum:38, minA:4, maxA:900, minF:1, cool:300, miss:true
+};
+const CFG_DEFAULT = JSON.parse(JSON.stringify(CFG));
+
+/* 표적 프리셋 — LaserHIT 표적은 ISSF 25m 정밀권총(원본 500mm)의 축소본입니다 */
+const PRESETS = {
+  own300 : {mode:'square', calib:300,   dia:300,   rings:10,
+            note:'앱의 [표적지 인쇄]로 만든 표적입니다. 바깥 정사각 테두리의 네 모서리를 찍으십시오. 테두리 한 변과 링 지름이 같습니다.'},
+  lh4    : {mode:'square', calib:null,  dia:125,   rings:10,
+            note:'LaserHIT 25M 표적을 A4에 100%로 인쇄한 경우입니다. 네 귀퉁이 <b>25M 마커의 바깥쪽 모서리</b>를 찍으십시오. ★ 마커 사이 실측 거리를 자로 재어 위 \'캘리브레이션 기준 치수\'에 입력해야 합니다.'},
+  lh3    : {mode:'square', calib:null,  dia:166.7, rings:10,
+            note:'LaserHIT 25M 표적을 A4에 133%로 확대 인쇄한 경우입니다. 마커 사이 거리를 실측해 입력하십시오.'},
+  lh2    : {mode:'square', calib:null,  dia:250,   rings:10,
+            note:'LaserHIT 25M 표적을 A3에 200%로 확대 인쇄한 경우입니다. 정밀도가 가장 좋습니다. 마커 사이 거리를 실측해 입력하십시오.'},
+  issf25 : {mode:'ring',   calib:500,   dia:500,   rings:10,
+            note:'ISSF 25m 정밀권총 원본 규격입니다. 최외곽 링 위의 12·3·6·9시 지점 네 곳을 찍으십시오.'},
+  custom : {note:'표적을 자로 재어 값을 직접 넣으십시오. <b>캘리브레이션 기준 치수</b>는 화면에서 찍을 네 점이 이루는 정사각형의 한 변(또는 링 지름)이고, <b>채점용 링 지름</b>은 1점 링의 바깥 지름입니다.'}
+};
+
+function applyPreset(key){
+  const p=PRESETS[key];
+  if(!p) return;
+  if(p.mode) CFG.mode=p.mode;
+  if(p.dia)  CFG.dia=p.dia;
+  if(p.rings)CFG.rings=p.rings;
+  if(p.calib!=null) CFG.calib=p.calib;
+  document.getElementById('presetNote').innerHTML=p.note;
+  applyCfgToUI();
+  if(S.quad) buildTransform();
+  evaluateQuality(); render();
+}
+
+function bindCfg(){
+  const num=[['cfgCalib','calib'],['cfgDia','dia'],['cfgRings','rings']];
+  num.forEach(([id,k])=>{
+    const el=document.getElementById(id);
+    el.value=CFG[k];
+    el.addEventListener('change',()=>{
+      const v=parseFloat(el.value);
+      if(isFinite(v)&&v>0){
+        CFG[k]=v;
+        document.getElementById('cfgPreset').value='custom';
+        if(S.quad) buildTransform();
+        evaluateQuality(); render();
+      }
+    });
+  });
+  const md=document.getElementById('cfgMode');
+  md.value=CFG.mode;
+  md.addEventListener('change',()=>{
+    CFG.mode=md.value;
+    document.getElementById('labCalib').textContent =
+      CFG.mode==='square' ? '찍을 정사각형의 한 변 (mm)' : '찍을 링의 지름 (mm)';
+    if(S.quad) buildTransform();
+    evaluateQuality(); render();
+  });
+  const pr=document.getElementById('cfgPreset');
+  pr.addEventListener('change',()=>applyPreset(pr.value));
+  const rng=[['cfgRed','red','vRed'],['cfgLum','lum','vLum'],['cfgMinA','minA','vMinA'],
+             ['cfgMaxA','maxA','vMaxA'],['cfgMinF','minF','vMinF'],['cfgCool','cool','vCool']];
+  rng.forEach(([id,k,vid])=>{
+    const el=document.getElementById(id), lab=document.getElementById(vid);
+    el.value=CFG[k]; lab.textContent=CFG[k];
+    el.addEventListener('input',()=>{ CFG[k]=parseFloat(el.value); lab.textContent=el.value; });
+  });
+  const mc=document.getElementById('cfgMiss');
+  mc.checked=CFG.miss;
+  mc.addEventListener('change',()=>{ CFG.miss=mc.checked; });
+}
+function applyCfgToUI(){
+  document.getElementById('cfgCalib').value=CFG.calib;
+  document.getElementById('cfgDia').value=CFG.dia;
+  document.getElementById('cfgRings').value=CFG.rings;
+  document.getElementById('cfgMode').value=CFG.mode;
+  document.getElementById('labCalib').textContent =
+    CFG.mode==='square' ? '찍을 정사각형의 한 변 (mm)' : '찍을 링의 지름 (mm)';
+  [['cfgRed','red','vRed'],['cfgLum','lum','vLum'],['cfgMinA','minA','vMinA'],
+   ['cfgMaxA','maxA','vMaxA'],['cfgMinF','minF','vMinF'],['cfgCool','cool','vCool']]
+   .forEach(([id,k,vid])=>{
+     document.getElementById(id).value=CFG[k];
+     document.getElementById(vid).textContent=CFG[k];
+   });
+  document.getElementById('cfgMiss').checked=CFG.miss;
+}
+function saveCfg(){
+  try{ localStorage.setItem('shotline.cfg', JSON.stringify(CFG)); log('설정을 저장했습니다.'); }
+  catch(e){ log('설정 저장 실패: '+e.message); }
+}
+function loadCfg(){
+  try{
+    const s=localStorage.getItem('shotline.cfg');
+    if(s) Object.assign(CFG, JSON.parse(s));
+  }catch(e){}
+}
+
+/* ===================== 3. 로그 ===================== */
+const logEl=document.getElementById('log');
+function log(msg){
+  const t=new Date();
+  const hh=String(t.getHours()).padStart(2,'0');
+  const mm=String(t.getMinutes()).padStart(2,'0');
+  const ss=String(t.getSeconds()).padStart(2,'0');
+  logEl.textContent = `[${hh}:${mm}:${ss}] ${msg}\n` + logEl.textContent;
+  if(logEl.textContent.length>6000) logEl.textContent=logEl.textContent.slice(0,6000);
+}
+
+/* ===================== 4. 카메라 ===================== */
+const video=document.getElementById('video');
+const overlay=document.getElementById('overlay');
+const octx=overlay.getContext('2d');
+const stage=document.getElementById('stage');
+const badge=document.getElementById('badge');
+const hintEl=document.getElementById('hint');
+
+async function startCamera(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    alert('이 브라우저는 카메라를 지원하지 않습니다.\nHTTPS 주소로 접속했는지 확인하십시오.');
+    return;
+  }
+  // 60fps를 우선 요청 — 짧은 펄스 누락 방지에 결정적
+  const tries=[
+    {video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:60}}},
+    {video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}}},
+    {video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}},
+    {video:{facingMode:{ideal:'environment'}}},
+    {video:true}
+  ];
+  let err=null;
+  for(const c of tries){
+    try{
+      S.stream=await navigator.mediaDevices.getUserMedia(c);
+      break;
+    }catch(e){ err=e; }
+  }
+  if(!S.stream){
+    alert('카메라를 열 수 없습니다: '+(err?err.message:'알 수 없는 오류')+
+          '\n\n· HTTPS 주소인지\n· 카메라 권한을 허용했는지\n확인하십시오.');
+    return;
+  }
+  video.srcObject=S.stream;
+  await video.play();
+  await new Promise(r=>{
+    if(video.videoWidth) return r();
+    video.addEventListener('loadedmetadata', r, {once:true});
+  });
+  S.vw=video.videoWidth; S.vh=video.videoHeight;
+
+  const tr=S.stream.getVideoTracks()[0];
+  const st=tr.getSettings ? tr.getSettings() : {};
+  log(`카메라 시작: ${S.vw}×${S.vh} @ ${st.frameRate?Math.round(st.frameRate):'?'}fps`);
+  document.getElementById('mRes').textContent=`${S.vw}×${S.vh}`;
+
+  // 지원되는 제약 확인 (zoom 등)
+  try{
+    const sup=navigator.mediaDevices.getSupportedConstraints();
+    const has=['zoom','exposureMode','exposureTime','focusMode','torch'].filter(k=>sup[k]);
+    log('지원 제약: '+(has.length?has.join(', '):'없음 (표준 항목만)'));
+  }catch(e){}
+
+  if(st.frameRate && st.frameRate < 50){
+    log('⚠ 30fps입니다. 아두이노 펄스를 120ms 이상으로 설정하십시오.');
+  }
+
+  resizeOverlay();
+  document.getElementById('bCalib').disabled=false;
+  document.getElementById('bStart').textContent='카메라 재시작';
+  badge.textContent='표적을 화면에 담고\n[표적 맞추기]를 누르십시오';
+  startLoop();
+}
+
+function resizeOverlay(){
+  const r=video.getBoundingClientRect();
+  if(r.width<2) return;
+  const dpr=Math.min(window.devicePixelRatio||1, 2);
+  overlay.width=Math.round(r.width*dpr);
+  overlay.height=Math.round(r.height*dpr);
+  overlay.style.width=r.width+'px';
+  overlay.style.height=r.height+'px';
+  octx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', ()=>{ resizeOverlay(); });
+window.addEventListener('orientationchange', ()=>setTimeout(resizeOverlay,400));
+
+/* 화면 꺼짐 방지 */
+let wakeLock=null;
+async function keepAwake(){
+  try{
+    if('wakeLock' in navigator){
+      wakeLock=await navigator.wakeLock.request('screen');
+      log('화면 꺼짐 방지 활성화');
+    }
+  }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible' && S.running) keepAwake();
+});
+
+/* 영상 좌표 ↔ 화면 좌표 */
+function dispScale(){
+  const r=video.getBoundingClientRect();
+  return { s: r.width/S.vw, r };
+}
+function evToVideo(ev){
+  const {s,r}=dispScale();
+  return { x:(ev.clientX-r.left)/s, y:(ev.clientY-r.top)/s };
+}
+
+/* ===================== 5. 캘리브레이션 (돋보기) ===================== */
+const NAMES_SQ  =['왼쪽 위','오른쪽 위','오른쪽 아래','왼쪽 아래'];
+const NAMES_RING=['12시 (맨 위)','3시 (오른쪽)','6시 (맨 아래)','9시 (왼쪽)'];
+function cornerNames(){ return CFG.mode==='ring'?NAMES_RING:NAMES_SQ; }
+function calibTargetWord(){ return CFG.mode==='ring'?'최외곽 링 위의':'표적 정사각형의'; }
+let calibPts=[], calibIdx=0, dragging=false;
+const loupe=document.getElementById('loupe');
+const loupeC=document.getElementById('loupeC');
+const lctx=loupeC.getContext('2d');
+const LOUPE_SRC=48;   // 원본에서 잘라올 영역 (px) → 180px에 그리므로 약 3.75배
+
+/*  ★ 미세 조정(FINE_GAIN) ★
+    ------------------------------------------------------------------
+    돋보기는 '정확히 보게' 해줄 뿐, '정확히 놓게' 해주지는 못합니다.
+    사용자는 화면 픽셀 단위로만 손가락을 놓을 수 있는데,
+    영상 1920px가 화면에서 600px로 줄어 표시되면 화면 1px = 영상 3.2px이라
+    아무리 잘 찍어도 영상 기준 ±1.6px(약 ±1.9mm)의 오차가 생깁니다.
+
+    그래서 손가락을 누른 뒤 움직이는 거리를 4분의 1로 줄여 반영합니다.
+    손가락을 20px 끌면 점은 5px만 움직이므로, 화면 해상도의 한계를 넘어
+    영상 기준 ±0.4px 수준으로 놓을 수 있습니다.
+    (아이폰 텍스트 커서를 옮길 때 쓰는 방식과 같은 원리입니다)               */
+const FINE_GAIN=0.25;
+let anchorPt=null, candPt=null;
+
+function beginCalib(){
+  calibPts=[]; calibIdx=0;
+  S.mode='calib'; S.quad=null; S.H=null; S.roi=null; S.bg=null; S.bgWide=null;
+  stage.classList.add('calib');
+  document.getElementById('bBg').disabled=true;
+  document.getElementById('bRun').disabled=true;
+  showHint(`${calibTargetWord()} <b>${cornerNames()[0]}</b> 지점을 누르십시오<br><span style="font-size:11.5px;opacity:.85">${loupeHintText()}</span>`);
+  log(`캘리브레이션 시작 — ${CFG.mode==='ring'?'링 위 12·3·6·9시':'네 모서리를 시계방향으로'} 지정하십시오.`);
+}
+function showHint(html){ hintEl.innerHTML=html; hintEl.style.display='block'; }
+function hideHint(){ hintEl.style.display='none'; }
+
+function drawLoupe(p, ev){
+  const half=LOUPE_SRC/2;
+  let sx=p.x-half, sy=p.y-half;
+  sx=Math.max(0,Math.min(S.vw-LOUPE_SRC,sx));
+  sy=Math.max(0,Math.min(S.vh-LOUPE_SRC,sy));
+  lctx.imageSmoothingEnabled=false;
+  lctx.drawImage(video, sx,sy,LOUPE_SRC,LOUPE_SRC, 0,0,180,180);
+  // 실제 포인터 위치가 중앙에서 벗어난 경우 보정 표시
+  const {s,r}=dispScale();
+  let lx=(ev.clientX-r.left)-90, ly=(ev.clientY-r.top)-200;
+  if(ly<4) ly=(ev.clientY-r.top)+30;
+  lx=Math.max(2,Math.min(r.width-182,lx));
+  loupe.style.left=lx+'px';
+  loupe.style.top=ly+'px';
+  loupe.style.display='block';
+}
+
+overlay.addEventListener('pointerdown',ev=>{
+  if(S.mode!=='calib') return;
+  ev.preventDefault();
+  overlay.setPointerCapture(ev.pointerId);
+  dragging=true;
+  anchorPt=evToVideo(ev);
+  candPt={x:anchorPt.x, y:anchorPt.y};
+  drawLoupe(candPt, ev);
+});
+overlay.addEventListener('pointermove',ev=>{
+  if(S.mode!=='calib'||!dragging) return;
+  ev.preventDefault();
+  const cur=evToVideo(ev);
+  // 손가락 이동량의 1/4만 반영해 화면 해상도보다 정밀하게 놓는다
+  candPt={ x:anchorPt.x+(cur.x-anchorPt.x)*FINE_GAIN,
+           y:anchorPt.y+(cur.y-anchorPt.y)*FINE_GAIN };
+  drawLoupe(candPt, ev);
+});
+overlay.addEventListener('pointerup',ev=>{
+  if(S.mode!=='calib'||!dragging) return;
+  ev.preventDefault();
+  dragging=false;
+  loupe.style.display='none';
+  const p={x:candPt.x, y:candPt.y};
+  p.x=Math.max(0,Math.min(S.vw,p.x));
+  p.y=Math.max(0,Math.min(S.vh,p.y));
+  calibPts.push(p);
+  log(`기준점 ${calibIdx+1}(${cornerNames()[calibIdx]}) = (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+  calibIdx++;
+  if(calibIdx<4){
+    showHint(`${calibTargetWord()} <b>${cornerNames()[calibIdx]}</b> 지점을 누르십시오<br><span style="font-size:11.5px;opacity:.85">${loupeHintText()}</span>`);
+  }else{
+    finishCalib();
+  }
+});
+overlay.addEventListener('pointercancel',()=>{ dragging=false; loupe.style.display='none'; });
+
+/* 돋보기 안에 십자선 기준 위치를 그린다 (손가락 위치가 아니라 실제 확정될 지점) */
+function loupeHintText(){
+  return '손가락을 <b>댄 채로 조금씩 끌면</b> 4배 정밀하게 맞출 수 있습니다.<br>돋보기 십자선이 실제 찍히는 지점입니다.';
+}
+
+function finishCalib(){
+  S.quad=calibPts.slice();
+  stage.classList.remove('calib');
+  hideHint();
+  if(!buildTransform()){
+    alert('네 점으로 표적면을 계산할 수 없습니다.\n모서리가 일직선에 가깝지 않은지 확인하고 다시 시도하십시오.');
+    S.quad=null; S.mode='idle';
+    return;
+  }
+  S.mode='idle';
+  document.getElementById('bBg').disabled=false;
+  document.getElementById('bProbe').disabled=false;
+  badge.textContent='표적 인식 완료\n[배경 학습]을 누르십시오';
+  log(`표적 인식 완료 — ROI ${S.roi.w}×${S.roi.h}px, 정밀도 ${S.mmPerPx.toFixed(3)} mm/px`);
+  evaluateQuality();
+}
+
+/* 호모그래피와 ROI 계산 */
+function buildTransform(){
+  const c=CFG.calib/2;
+  /* 표적 평면 좌표: x 오른쪽 +, y 위쪽 +  (mm, 중심 원점)
+     square 모드 : 왼위 → 오른위 → 오른아래 → 왼아래
+     ring   모드 : 12시 → 3시 → 6시 → 9시   (링 위 네 점) */
+  const src = CFG.mode==='ring'
+    ? [{x:0,y:c},{x:c,y:0},{x:0,y:-c},{x:-c,y:0}]
+    : [{x:-c,y:c},{x:c,y:c},{x:c,y:-c},{x:-c,y:-c}];
+  S.H=homography(src, S.quad);
+  if(!S.H) return false;
+  S.Hinv=invert3(S.H);
+  if(!S.Hinv) return false;
+
+  /* ROI = 찍은 네 점 + 채점 링 전체를 모두 감싸는 축정렬 경계 + 여백.
+     LaserHIT 표적처럼 마커 사각형이 링보다 작을 수도, 클 수도 있으므로 둘 다 포함시킵니다. */
+  const pts=S.quad.slice();
+  const R=CFG.dia/2;
+  for(let a=0;a<24;a++){
+    const th=a/24*Math.PI*2;
+    pts.push(applyH(S.H, Math.cos(th)*R, Math.sin(th)*R));
+  }
+  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y);
+  const pad=Math.max(10, (Math.max(...xs)-Math.min(...xs))*0.07);
+  let x0=Math.floor(Math.min(...xs)-pad), y0=Math.floor(Math.min(...ys)-pad);
+  let x1=Math.ceil(Math.max(...xs)+pad),  y1=Math.ceil(Math.max(...ys)+pad);
+  x0=Math.max(0,x0); y0=Math.max(0,y0);
+  x1=Math.min(S.vw,x1); y1=Math.min(S.vh,y1);
+  S.roi={x:x0,y:y0,w:x1-x0,h:y1-y0};
+
+  // mm/px : 표적 중심에서 1px 이동했을 때의 mm 변화
+  const ctr=applyH(S.H,0,0);
+  const a=applyH(S.Hinv,ctr.x,ctr.y), b2=applyH(S.Hinv,ctr.x+1,ctr.y);
+  S.mmPerPx=Math.hypot(b2.x-a.x, b2.y-a.y);
+  document.getElementById('mMmpx').textContent=S.mmPerPx.toFixed(2)+' mm/px';
+
+  S.bg=null; S.bgWide=null;
+  return true;
+}
+
+/* 품질 평가 */
+function evaluateQuality(){
+  const el=document.getElementById('qualityNote');
+  if(!S.quad){ el.textContent=''; return; }
+  const ringMm=(CFG.dia/2)/CFG.rings;
+  const ringPx=ringMm/S.mmPerPx;
+  const centroidErr=0.3*S.mmPerPx;
+  // 실제 탭 정밀도는 '화면에 표시된 배율'에 좌우됩니다.
+  // 화면 1px이 영상 몇 px인지 구하고, 미세조정 배율을 곱해 유효 오차를 냅니다.
+  const dispPx = (video.getBoundingClientRect().width||1);
+  const vpc = S.vw/dispPx;                    // 화면 1px = 영상 vpc px
+  const calibErr = Math.max(0.35, 0.5*vpc*FINE_GAIN) * S.mmPerPx;
+  const total=Math.hypot(centroidErr, calibErr);
+  const ratio=total/ringMm;
+  let tag,txt;
+  if(ratio<0.10){ tag='<span class="tag ok">우수</span>'; txt='논문 측정도구로 충분한 정밀도입니다.'; }
+  else if(ratio<0.25){ tag='<span class="tag mid">양호</span>'; txt='사용 가능하나, 태블릿을 조금 더 가까이 두거나 표적을 확대 인쇄하면 개선됩니다.'; }
+  else { tag='<span class="tag bad">부족</span>'; txt='태블릿을 표적에 더 가까이 두거나 표적을 크게 인쇄하십시오.'; }
+  el.innerHTML=`${tag} 1링 = ${ringMm.toFixed(1)}mm (${ringPx.toFixed(1)}px) · `+
+    `예상 좌표오차 ±${total.toFixed(2)}mm (${ratio.toFixed(2)}링) — ${txt}`;
+}
+
+/* ===================== 6. 처리용 캔버스 ===================== */
+const roiCv=document.createElement('canvas');
+const roiCtx=roiCv.getContext('2d',{willReadFrequently:true});
+const wideCv=document.createElement('canvas');
+wideCv.width=WIDE_W; wideCv.height=WIDE_H;
+const wideCtx=wideCv.getContext('2d',{willReadFrequently:true});
+
+function grabROI(){
+  const r=S.roi;
+  if(roiCv.width!==r.w||roiCv.height!==r.h){ roiCv.width=r.w; roiCv.height=r.h; }
+  roiCtx.drawImage(video, r.x,r.y,r.w,r.h, 0,0,r.w,r.h);
+  return roiCtx.getImageData(0,0,r.w,r.h);
+}
+function grabWide(){
+  wideCtx.drawImage(video, 0,0,S.vw,S.vh, 0,0,WIDE_W,WIDE_H);
+  return wideCtx.getImageData(0,0,WIDE_W,WIDE_H);
+}
+
+/* ===================== 7. 배경 모델 ===================== */
+function newBg(n){
+  return { n:0, N:n, sumR:new Float32Array(n), sumG:new Float32Array(n), sumB:new Float32Array(n),
+           mR:null,mG:null,mB:null, ready:false };
+}
+function accBg(bg, img){
+  const d=img.data, n=bg.N;
+  for(let i=0,p=0;i<n;i++,p+=4){
+    bg.sumR[i]+=d[p]; bg.sumG[i]+=d[p+1]; bg.sumB[i]+=d[p+2];
+  }
+  bg.n++;
+}
+function finishBg(bg){
+  const n=bg.N, k=1/bg.n;
+  bg.mR=new Float32Array(n); bg.mG=new Float32Array(n); bg.mB=new Float32Array(n);
+  for(let i=0;i<n;i++){
+    bg.mR[i]=bg.sumR[i]*k; bg.mG[i]=bg.sumG[i]*k; bg.mB[i]=bg.sumB[i]*k;
+  }
+  bg.sumR=bg.sumG=bg.sumB=null;
+  bg.ready=true;
+}
+/* 검출되지 않은 프레임에서 배경을 아주 천천히 갱신 (조명 변화 대응) */
+function driftBg(bg, img, alpha){
+  const d=img.data, n=bg.N, a=alpha, ia=1-alpha;
+  for(let i=0,p=0;i<n;i++,p+=4){
+    bg.mR[i]=bg.mR[i]*ia+d[p]*a;
+    bg.mG[i]=bg.mG[i]*ia+d[p+1]*a;
+    bg.mB[i]=bg.mB[i]*ia+d[p+2]*a;
+  }
+}
+
+let bgCount=0, bgTargetWide=null;
+function beginBgLearn(){
+  if(!S.roi){ return; }
+  S.bg=newBg(S.roi.w*S.roi.h);
+  S.bgWide=newBg(WIDE_W*WIDE_H);
+  bgCount=0;
+  S.mode='bg';
+  badge.textContent='배경 학습 중…\n표적 앞을 비워 주십시오';
+  log('배경 학습 시작 (' + BG_FRAMES + '프레임)');
+}
+
+/* ===================== 8. 검출 ===================== */
+/*  ★ 헤드룸 정규화 지표 ★
+    ------------------------------------------------------------------
+    단순히 (현재 - 배경)을 쓰면 밝은 흰 종이에서 실패합니다.
+    배경이 이미 232라면 레이저가 아무리 밝아도 255까지 23밖에 못 올라가고,
+    적·녹·청이 함께 포화되어 '붉은 기운'이 0이 되어 버리기 때문입니다.
+
+    그래서 각 채널이 '남은 여유(헤드룸)의 몇 %를 채웠는가'로 환산합니다.
+        n = (현재 - 배경) / (255 - 배경)
+    이러면 검은 표적 중앙이든 흰 바깥이든 레이저가 채널을 포화시키면 n≈1이 되어
+    배경 밝기와 무관하게 같은 강도로 측정됩니다.
+
+      mRed = 100 × (nR - 0.5(nG + nB))   붉은 기운   (조명 전체 변화에 둔감)
+      mLum = 100 × (0.4nR + 0.4nG + 0.2nB) 밝기 상승 (포화된 흰 코어 대응)
+
+    두 지표 모두 0~100 범위이므로 임계값을 직관적으로 정할 수 있습니다.
+    단, 배경이 255에 가까우면 작은 잡음도 크게 증폭되므로
+    '원본 단계에서 최소 ABS_GATE 이상 올라야 한다'는 조건을 함께 겁니다.
+    ------------------------------------------------------------------ */
+const HR_MIN  = 12;   // 헤드룸 하한 (0으로 나누기·과증폭 방지)
+const ABS_GATE = 7;   // 원본 계조 기준 최소 상승폭
+const REF_ABS = 55;   // 절대 상승폭 기준 (어두운 배경용). 이 값만큼 오르면 1.0
+const REF_BG  = 30;   // 무게중심 반사율 보정 시 배경 밝기 하한 (잡음 증폭 방지)
+
+/*  헤드룸 기준만 쓰면 어두운 곳에서 신호를 과소평가합니다.
+    표적 흑심(밝기 30)은 여유가 225나 되므로, 레이저가 27계조를 올려도
+    27/225 = 0.12 밖에 안 되어 임계값에 못 미칩니다.
+    하지만 배경이 30인 곳에서 27이 오른 것은 밝기가 거의 두 배가 된 큰 변화입니다.
+    그래서 '여유 대비'와 '절대 상승폭' 중 큰 쪽을 채택합니다.
+      밝은 배경 → 여유가 작으므로 '여유 대비'가 크게 나옴
+      어두운 배경 → 여유는 크지만 절대 상승폭이 뚜렷하므로 그쪽이 채택됨          */
+function norm(d, bg){
+  const head = 255-bg > HR_MIN ? 255-bg : HR_MIN;
+  const a = d/head, b = d/REF_ABS;
+  return a>b ? a : b;
+}
+
+/*  ★ 검출용 지표와 위치계산용 지표를 분리합니다 ★
+    ------------------------------------------------------------------
+    카메라는 영상을 YUV420으로 내보냅니다. 밝기(Y)는 픽셀마다 온전히 담기지만
+    색차(U,V)는 가로세로 2픽셀을 하나로 묶어 절반 해상도로 줄여 보냅니다.
+    그래서 '붉은 기운' 지표는 실제로는 뭉개진 정보이고,
+    이걸로 무게중심을 구하면 위치가 계단처럼 밀립니다.
+
+    실측(YUV420 왕복 시험):
+        붉은 기운 기준 무게중심 오차  0.09px → 0.52px  (6배 악화)
+        밝기 기준   무게중심 오차  0.09px → 0.10px  (영향 없음)
+
+    따라서
+      · 무엇이 레이저인가 판단 → 붉은 기운 + 밝기 (조명 변화에 강함)
+      · 그것이 어디에 있는가   → 밝기만 (해상도 손실 없음)
+    로 나눕니다.                                                        */
+const maskBuf={arr:null,n:0};
+const lumBuf={arr:null,n:0};
+const labelBuf={arr:null,n:0};
+const stackBuf={arr:null,n:0};
+function ensureBuf(buf, n, Ctor){
+  if(!buf.arr||buf.n<n){ buf.arr=new Ctor(n); buf.n=n; }
+  return buf.arr;
+}
+
+function detect(img, bg, w, h, thRed, thLum, minA, maxA){
+  const n=w*h, d=img.data;
+  const wgt=ensureBuf(maskBuf, n, Float32Array);
+  const lum=ensureBuf(lumBuf, n, Float32Array);
+  const lab=ensureBuf(labelBuf, n, Int32Array);
+  let anyPix=false;
+  let maxRed=0, maxLum=0, sumRed=0, sumLum=0;
+
+  for(let i=0,p=0;i<n;i++,p+=4){
+    const bR=bg.mR[i], bG=bg.mG[i], bB=bg.mB[i];
+    const dR=d[p]-bR, dG=d[p+1]-bG, dB=d[p+2]-bB;
+
+    // 원본 계조에서 충분히 오르지 않았으면 잡음으로 간주하고 즉시 탈락
+    if(dR<ABS_GATE && dG<ABS_GATE && dB<ABS_GATE){ wgt[i]=0; lum[i]=0; lab[i]=0; continue; }
+
+    /* 위치 계산 전용 가중치 — 밝기 상승분(전해상도)을 '배경 밝기로 나눈' 값.
+       ------------------------------------------------------------------
+       레이저 점이 인쇄된 링 선에 걸치면, 밝은 선 위에서는 빛이 많이 반사되고
+       검은 바탕 위에서는 적게 반사됩니다. 밝기 상승분을 그대로 쓰면 무게중심이
+       밝은 선 쪽으로 끌려가 좌표가 밀립니다.
+
+       관측된 상승분 d ≈ (레이저 세기) × (그 지점의 반사율)
+       배경 밝기     b ≈ (조명)       × (그 지점의 반사율)
+       이므로 d/b 를 쓰면 반사율이 약분되어 순수한 레이저 세기 분포만 남습니다.
+
+       실측: 링 선이 지나는 지점의 탄착 오차 1.9mm → 0.5mm 로 개선                */
+    const yd=0.30*dR+0.59*dG+0.11*dB;
+    const yb=0.30*bR+0.59*bG+0.11*bB;
+    lum[i]= yd>0 ? yd/(yb>REF_BG?yb:REF_BG) : 0;
+
+    const nR=norm(dR,bR), nG=norm(dG,bG), nB=norm(dB,bB);
+
+    const mRed=100*(nR-0.5*(nG+nB));
+    const mLum=100*(0.4*nR+0.4*nG+0.2*nB);
+    if(mRed>maxRed) maxRed=mRed;
+    if(mLum>maxLum) maxLum=mLum;
+    if(mRed>0) sumRed+=mRed;
+    if(mLum>0) sumLum+=mLum;
+
+    /* 임계값 대비 '초과 배율'로 환산해 두 지표를 같은 척도에 올린다.
+       exc = 1.0 이면 겨우 임계값, 2.0 이면 임계값의 두 배로 뚜렷하다는 뜻. */
+    const exc = Math.max(mRed/thRed, mLum/thLum);
+    const v = exc>1 ? exc : 0;
+    wgt[i]=v;
+    lab[i]=v>0?-1:0;
+    if(v>0) anyPix=true;
+  }
+  const stats={maxRed,maxLum,flood:false};
+
+  /* ★ 조명 변화 방어 ★
+     레이저는 ROI의 0.1%도 안 되는 아주 작은 점이므로, 화면 전체의 평균 상승분은 0에 가깝습니다.
+     반대로 조명이 켜지거나 카메라 노출이 재조정되면 모든 픽셀이 함께 올라가 평균이 크게 뜁니다.
+     이 평균값 하나로 두 상황을 확실히 구분할 수 있습니다.                                    */
+  if(sumLum/n > 8 || sumRed/n > 8){
+    stats.flood=true;
+    return {blobs:[],stats};
+  }
+  if(!anyPix) return {blobs:[],stats};
+
+  /* 잡음이 임계값을 살짝 넘어 생긴 조각 제거 — 진짜 레이저는 임계값을 확실히 넘습니다. */
+  const peakGate = 1.25;
+
+  /* 연결성분 (4-이웃, 명시적 스택 — 재귀 금지) */
+  const st=ensureBuf(stackBuf, n, Int32Array);
+  const blobs=[];
+  for(let i0=0;i0<n;i0++){
+    if(lab[i0]!==-1) continue;
+    let sp=0; st[sp++]=i0; lab[i0]=1;
+    let area=0, sw=0, sx=0, sy=0, peak=0;
+    let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+    while(sp>0){
+      const i=st[--sp];
+      const x=i%w, y=(i-x)/w;
+      const v=wgt[i];
+      // 면적·형태 판정은 검출 지표로, 무게중심은 밝기 지표로 계산한다
+      const lv=lum[i]>0?lum[i]:0.001;
+      area++; sw+=lv; sx+=lv*x; sy+=lv*y;
+      if(v>peak) peak=v;
+      if(x<minx)minx=x; if(x>maxx)maxx=x;
+      if(y<miny)miny=y; if(y>maxy)maxy=y;
+      if(x>0   && lab[i-1]===-1){ lab[i-1]=1; st[sp++]=i-1; }
+      if(x<w-1 && lab[i+1]===-1){ lab[i+1]=1; st[sp++]=i+1; }
+      if(y>0   && lab[i-w]===-1){ lab[i-w]=1; st[sp++]=i-w; }
+      if(y<h-1 && lab[i+w]===-1){ lab[i+w]=1; st[sp++]=i+w; }
+      /* ※ 여기서 break로 빠져나가면 안 됩니다.
+         아직 스택에 넣지 않은 나머지 픽셀이 미방문 상태로 남아,
+         바깥 루프가 그것들을 '새로운 작은 덩어리'로 다시 잡아냅니다.
+         큰 조명 반사가 여러 개의 가짜 탄착으로 쪼개지는 원인이 됩니다.
+         반드시 덩어리 전체를 끝까지 소진한 뒤 크기로 판단해야 합니다. */
+    }
+    if(area<minA||area>maxA) continue;
+    if(peak<peakGate) continue;   // 잡음 조각 제거
+    const bw=maxx-minx+1, bh=maxy-miny+1;
+    const ar=Math.max(bw,bh)/Math.max(1,Math.min(bw,bh));
+    if(ar>4) continue;            // 길쭉한 것은 반사/줄무늬
+    const fill=area/(bw*bh);
+    if(fill<0.25) continue;       // 성긴 것은 잡음
+    if(sw<=0) continue;
+    blobs.push({
+      x:sx/sw + 0.5,              // 서브픽셀 무게중심 (픽셀 중심 보정)
+      y:sy/sw + 0.5,
+      area, peak, weight:sw
+    });
+  }
+  blobs.sort((a,b)=>b.weight-a.weight);
+  return {blobs:blobs.slice(0,8), stats};
+}
+
+/* ===================== 9. 추적 · 확정 ===================== */
+function updateTracks(hits, now){
+  const matchR = 14;   // px (ROI 원본 해상도 기준)
+  for(const t of S.tracks) t.seen=false;
+
+  for(const b of hits){
+    let best=null, bd=1e9;
+    for(const t of S.tracks){
+      const d=Math.hypot(t.x-b.x, t.y-b.y);
+      if(d<bd){ bd=d; best=t; }
+    }
+    if(best && bd<matchR){
+      // 가중 누적 — 여러 프레임 평균으로 무게중심 잡음을 줄인다
+      best.sw+=b.weight; best.sx+=b.x*b.weight; best.sy+=b.y*b.weight;
+      best.x=best.sx/best.sw; best.y=best.sy/best.sw;
+      best.frames++; best.last=now; best.seen=true;
+      best.peak=Math.max(best.peak,b.peak);
+      best.areaMax=Math.max(best.areaMax,b.area);
+      best.isMiss=best.isMiss&&b.isMiss;
+    }else{
+      S.tracks.push({
+        x:b.x,y:b.y, sx:b.x*b.weight, sy:b.y*b.weight, sw:b.weight,
+        frames:1, start:now, last:now, seen:true,
+        peak:b.peak, areaMax:b.area, isMiss:!!b.isMiss
+      });
+    }
+  }
+  // 너무 오래 지속되는 것은 격발이 아니라 조명 변화/반사로 판단해 폐기
+  const MAX_LIFE=2000; // ms
+  for(let i=S.tracks.length-1;i>=0;i--){
+    const t=S.tracks[i];
+    if(t.seen && now-t.start>MAX_LIFE){
+      S.tracks.splice(i,1);
+      log('2초 이상 지속되어 조명/반사로 판단, 폐기했습니다. (배경 재학습 권장)');
+    }
+  }
+
+  // 사라진 트랙 확정
+  const GAP=90; // ms 동안 안 보이면 종료로 판단
+  for(let i=S.tracks.length-1;i>=0;i--){
+    const t=S.tracks[i];
+    if(t.seen) continue;
+    if(now-t.last < GAP) continue;
+    S.tracks.splice(i,1);
+    if(t.frames < CFG.minF) continue;
+    if(t.last-t.start > MAX_LIFE) continue;
+    if(now - S.lastEmitAt < CFG.cool &&
+       S.lastEmitPos && Math.hypot(S.lastEmitPos.x-t.x, S.lastEmitPos.y-t.y)<matchR*2){
+      log('중복 격발로 판단해 무시했습니다.');
+      continue;
+    }
+    emitShot(t, now);
+  }
+}
+
+function emitShot(t, now){
+  let vx, vy;
+  if(t.isMiss){ vx = t.x*S.vw/WIDE_W; vy = t.y*S.vh/WIDE_H; }
+  else       { vx = S.roi.x + t.x;    vy = S.roi.y + t.y; }
+  const mm=applyH(S.Hinv, vx, vy);
+  const r=Math.hypot(mm.x, mm.y);
+  const ringMm=(CFG.dia/2)/CFG.rings;
+  // 채점 영역은 원형입니다 (최외곽 링 바깥은 이탈)
+  const outside = r > CFG.dia/2;
+  const sInt = outside ? 0 : Math.max(0, Math.min(CFG.rings, CFG.rings+1-Math.ceil(r/ringMm)));
+  const sDec = outside ? 0 : Math.max(0, Math.min(CFG.rings+0.9, (CFG.rings+1)-r/ringMm));
+
+  const shot={
+    id:S.nextId++, t:now,
+    xmm:mm.x, ymm:mm.y, r,
+    score:sInt, dec:sDec, miss:outside,
+    frames:t.frames, peak:Math.round(t.peak), area:t.areaMax,
+    dur:Math.round(t.last-t.start)
+  };
+  S.shots.push(shot);
+  S.lastEmitAt=now; S.lastEmitPos={x:t.x,y:t.y};
+
+  log(outside
+    ? `이탈 — (${mm.x.toFixed(1)}, ${mm.y.toFixed(1)})mm, ${t.frames}프레임`
+    : `${S.shots.length}발 — (${mm.x.toFixed(1)}, ${mm.y.toFixed(1)})mm  ${sInt}점 (${sDec.toFixed(1)})  ${t.frames}프레임 ${Math.round(t.last-t.start)}ms`);
+
+  if(t.frames===1 && CFG.minF===1)
+    log('  ↑ 1프레임만 포착됨. 아두이노 펄스를 늘리면 정밀도가 올라갑니다.');
+
+  updateTable(); updateStats();
+  document.getElementById('bReset').disabled=false;
+  document.getElementById('bCsv').disabled=false;
+}
+
+/* ===================== 10. 메인 루프 ===================== */
+let lastT=0;
+function startLoop(){
+  if(S.running) return;
+  S.running=true;
+  keepAwake();
+  const hasRVFC = typeof video.requestVideoFrameCallback === 'function';
+  const step=()=>{
+    if(!S.running) return;
+    tick();
+    if(hasRVFC) video.requestVideoFrameCallback(step);
+    else requestAnimationFrame(step);
+  };
+  if(hasRVFC) video.requestVideoFrameCallback(step);
+  else requestAnimationFrame(step);
+  log('처리 루프 시작 ('+(hasRVFC?'프레임 동기':'화면 동기')+')');
+}
+
+function tick(){
+  const now=performance.now();
+  S.frames++;
+  if(now-S.fpsT>=500){
+    S.fps=S.frames*1000/(now-S.fpsT);
+    S.frames=0; S.fpsT=now;
+    document.getElementById('mFps').textContent=S.fps.toFixed(0);
+    document.getElementById('mMs').innerHTML=S.procMs.toFixed(1)+'<small>ms</small>';
+  }
+
+  const t0=performance.now();
+
+  if(S.mode==='bg'){
+    if(S.roi){
+      accBg(S.bg, grabROI());
+      accBg(S.bgWide, grabWide());
+      bgCount++;
+      badge.textContent=`배경 학습 중… ${Math.round(bgCount/BG_FRAMES*100)}%`;
+      if(bgCount>=BG_FRAMES){
+        finishBg(S.bg); finishBg(S.bgWide);
+        S.mode='idle';
+        document.getElementById('bRun').disabled=false;
+        badge.textContent='배경 학습 완료\n[신호 강도 측정] 또는 [검출 시작]';
+        log('배경 학습 완료');
+      }
+    }
+  }
+  else if(S.mode==='run' || S.mode==='probe'){
+    if(S.bg && S.bg.ready){
+      const roiImg=grabROI();
+      const R=detect(roiImg, S.bg, S.roi.w, S.roi.h, CFG.red, CFG.lum, CFG.minA, CFG.maxA);
+      let hits=R.blobs;
+
+      let wideHits=[];
+      if(CFG.miss && S.bgWide && S.bgWide.ready){
+        const wImg=grabWide();
+        const scale=S.vw/WIDE_W;
+        const W=detect(wImg, S.bgWide, WIDE_W, WIDE_H,
+                       CFG.red*0.8, CFG.lum*0.8,
+                       Math.max(1,Math.round(CFG.minA/(scale*scale))),
+                       Math.max(20,Math.round(CFG.maxA/(scale*scale))));
+        // ROI 안쪽에서 이미 잡힌 것은 제외
+        for(const b of W.blobs){
+          const vx=b.x*scale, vy=b.y*S.vh/WIDE_H;
+          if(vx>=S.roi.x && vx<=S.roi.x+S.roi.w && vy>=S.roi.y && vy<=S.roi.y+S.roi.h) continue;
+          b.isMiss=true;
+          wideHits.push(b);
+        }
+      }
+
+      /* ★ 카메라 이동 감지 ★
+         화면 전체가 배경과 어긋나는 상태(flood)가 계속되면 조명 변화가 아니라
+         태블릿이 밀렸을 가능성이 큽니다. 이때는 캘리브레이션도 함께 깨졌으므로
+         조용히 넘어가면 안 되고 반드시 알려야 합니다. */
+      if(R.stats.flood){
+        if(!S.floodSince) S.floodSince=now;
+        else if(now-S.floodSince>1500 && now-(S.floodWarnAt||0)>8000){
+          S.floodWarnAt=now;
+          badge.textContent='⚠ 화면이 배경과 어긋납니다\n카메라가 움직였는지 확인하십시오';
+          log('⚠ 1.5초 이상 화면 전체가 배경과 불일치합니다. 태블릿이 밀렸다면 [표적 맞추기]부터 다시, 조명이 바뀐 것이라면 [배경 학습]만 다시 하십시오.');
+        }
+      }else{
+        if(S.floodSince && now-S.floodSince>1500 && S.mode==='run')
+          badge.textContent='검출 중';
+        S.floodSince=0;
+      }
+
+      if(S.mode==='probe'){
+        const s=R.stats;
+        S.probe.red=Math.max(S.probe.red, s.maxRed);
+        S.probe.lum=Math.max(S.probe.lum, s.maxLum);
+        if(hits.length) S.probe.area=Math.max(S.probe.area, hits[0].area);
+        updateProbe();
+      }else{
+        updateTracks(hits.concat(wideHits), now);
+        if(hits.length===0 && wideHits.length===0){
+          if((S.frames&15)===0) driftBg(S.bg, roiImg, 0.02);
+        }
+      }
+      S.lastHits=hits; S.lastWide=wideHits;
+    }
+  }
+
+  S.procMs = S.procMs*0.85 + (performance.now()-t0)*0.15;
+  render();
+}
+
+/* ===================== 11. 화면 그리기 ===================== */
+function render(){
+  if(!S.vw) return;
+  const {s}=dispScale();
+  const w=overlay.width/(Math.min(window.devicePixelRatio||1,2));
+  const h=overlay.height/(Math.min(window.devicePixelRatio||1,2));
+  octx.clearRect(0,0,w,h);
+  const P=p=>({x:p.x*s, y:p.y*s});
+
+  // 캘리브레이션 진행 중 찍힌 점
+  if(S.mode==='calib'){
+    octx.fillStyle='#E2452F';
+    calibPts.forEach((p,i)=>{
+      const q=P(p);
+      octx.beginPath(); octx.arc(q.x,q.y,5,0,7); octx.fill();
+      octx.fillStyle='#fff'; octx.font='bold 11px monospace';
+      octx.fillText(String(i+1), q.x+8, q.y-6);
+      octx.fillStyle='#E2452F';
+    });
+    if(calibPts.length>1){
+      octx.strokeStyle='rgba(226,69,47,.85)'; octx.lineWidth=2;
+      octx.beginPath();
+      calibPts.forEach((p,i)=>{ const q=P(p); i?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y); });
+      octx.stroke();
+    }
+  }
+
+  if(S.quad && S.H){
+    // 캘리브레이션에 쓴 네 점 (참고용 얇은 선)
+    octx.strokeStyle='rgba(23,166,124,.55)'; octx.lineWidth=1.5;
+    octx.setLineDash([4,3]);
+    octx.beginPath();
+    S.quad.forEach((p,i)=>{ const q=P(p); i?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y); });
+    octx.closePath(); octx.stroke();
+    octx.setLineDash([]);
+    // 실제 채점 경계 = 최외곽 링 (굵은 선)
+    octx.strokeStyle='rgba(23,166,124,.95)'; octx.lineWidth=2;
+    octx.beginPath();
+    for(let a=0;a<=72;a++){
+      const th=a/72*Math.PI*2;
+      const q=P(applyH(S.H, Math.cos(th)*CFG.dia/2, Math.sin(th)*CFG.dia/2));
+      a?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y);
+    }
+    octx.closePath(); octx.stroke();
+
+    // ROI
+    if(S.roi){
+      octx.strokeStyle='rgba(255,255,255,.35)'; octx.lineWidth=1;
+      octx.setLineDash([5,4]);
+      octx.strokeRect(S.roi.x*s, S.roi.y*s, S.roi.w*s, S.roi.h*s);
+      octx.setLineDash([]);
+    }
+
+    // 링 (원근 반영, 10점/5점만)
+    octx.strokeStyle='rgba(23,166,124,.45)'; octx.lineWidth=1;
+    const ringMm=(CFG.dia/2)/CFG.rings;
+    [1, Math.round(CFG.rings/2)].forEach(k=>{
+      const rr=ringMm*k;
+      octx.beginPath();
+      for(let a=0;a<=64;a++){
+        const th=a/64*Math.PI*2;
+        const q=P(applyH(S.H, Math.cos(th)*rr, Math.sin(th)*rr));
+        a?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y);
+      }
+      octx.closePath(); octx.stroke();
+    });
+
+    // 중심
+    const c=P(applyH(S.H,0,0));
+    octx.strokeStyle='rgba(23,166,124,.9)'; octx.lineWidth=1.5;
+    octx.beginPath();
+    octx.moveTo(c.x-7,c.y); octx.lineTo(c.x+7,c.y);
+    octx.moveTo(c.x,c.y-7); octx.lineTo(c.x,c.y+7);
+    octx.stroke();
+  }
+
+  // 현재 프레임 후보
+  if(S.lastHits) for(const b of S.lastHits){
+    const q={x:(S.roi.x+b.x)*s, y:(S.roi.y+b.y)*s};
+    octx.strokeStyle='#FFD400'; octx.lineWidth=1.5;
+    octx.beginPath(); octx.arc(q.x,q.y,9,0,7); octx.stroke();
+  }
+  if(S.lastWide) for(const b of S.lastWide){
+    const q={x:b.x*S.vw/WIDE_W*s, y:b.y*S.vh/WIDE_H*s};
+    octx.strokeStyle='#FF8A00'; octx.lineWidth=1.5;
+    octx.beginPath(); octx.arc(q.x,q.y,11,0,7); octx.stroke();
+  }
+
+  // 확정된 탄착
+  if(S.H) S.shots.forEach((sh,i)=>{
+    const q=P(applyH(S.H, sh.xmm, sh.ymm));
+    octx.fillStyle=sh.miss?'#FF8A00':'#E2452F';
+    octx.beginPath(); octx.arc(q.x,q.y,5.5,0,7); octx.fill();
+    octx.strokeStyle='#fff'; octx.lineWidth=1.5; octx.stroke();
+    octx.fillStyle='#fff'; octx.font='bold 10px monospace';
+    octx.fillText(String(i+1), q.x+8, q.y-5);
+  });
+}
+
+/* ===================== 12. 표·통계 ===================== */
+function updateTable(){
+  const tb=document.getElementById('tbody');
+  tb.innerHTML=S.shots.map((s,i)=>
+    `<tr>
+      <td class="${s.miss?'miss':''}">${i+1}${s.miss?' 이탈':''}</td>
+      <td class="n">${s.xmm.toFixed(1)}</td>
+      <td class="n">${s.ymm.toFixed(1)}</td>
+      <td class="n"><b>${s.score}</b></td>
+      <td class="n">${s.dec.toFixed(1)}</td>
+      <td class="n">${s.frames}</td>
+      <td class="n">${s.peak}</td>
+    </tr>`).join('');
+}
+function updateStats(){
+  const hit=S.shots.filter(s=>!s.miss);
+  document.getElementById('mShots').textContent=hit.length;
+  document.getElementById('mMiss').textContent=S.shots.length-hit.length;
+  if(hit.length){
+    const avg=hit.reduce((a,b)=>a+b.dec,0)/hit.length;
+    document.getElementById('mAvg').textContent=avg.toFixed(2);
+    let g=0;
+    for(let i=0;i<hit.length;i++) for(let j=i+1;j<hit.length;j++)
+      g=Math.max(g, Math.hypot(hit[i].xmm-hit[j].xmm, hit[i].ymm-hit[j].ymm));
+    document.getElementById('mGroup').innerHTML=g.toFixed(1)+'<small>mm</small>';
+  }else{
+    document.getElementById('mAvg').textContent='–';
+    document.getElementById('mGroup').innerHTML='–<small>mm</small>';
+  }
+}
+
+/* ===================== 13. 신호 강도 측정 ===================== */
+/* 배경 모델에서 '표적의 밝은 영역'이 몇 계조로 찍히는지 (상위 20% 평균) */
+function bgBrightness(){
+  if(!S.bg||!S.bg.ready) return 0;
+  const n=S.bg.N, step=Math.max(1,Math.floor(n/8000));
+  const v=[];
+  for(let i=0;i<n;i+=step) v.push(S.bg.mR[i]*0.4+S.bg.mG[i]*0.4+S.bg.mB[i]*0.2);
+  v.sort((a,b)=>b-a);
+  const k=Math.max(1,Math.floor(v.length*0.2));
+  let s=0; for(let i=0;i<k;i++) s+=v[i];
+  return s/k;
+}
+
+function updateProbe(){
+  document.getElementById('pRed').textContent=S.probe.red.toFixed(0);
+  document.getElementById('pLum').textContent=S.probe.lum.toFixed(0);
+  document.getElementById('pArea').textContent=S.probe.area||'–';
+  const bb=bgBrightness();
+  const bbEl=document.getElementById('pBg');
+  bbEl.textContent=bb.toFixed(0);
+  bbEl.style.color = bb>=238 ? 'var(--shot)' : (bb<=90 ? 'var(--warn)' : '');
+  const r=S.probe.red, l=S.probe.lum;
+  const adv=document.getElementById('probeAdvice');
+  if(r<10 && l<20){
+    adv.innerHTML='<span class="tag bad">신호 없음</span> 레이저가 표적을 비추고 있는지, '+
+      '배경 학습 이후 카메라가 움직이지 않았는지 확인하십시오.';
+  }else{
+    const weak = r<25 && l<45;
+    const rt=Math.max(5, Math.round(r*(weak?0.5:0.45)));
+    const lt=Math.max(12, Math.round(l*0.5));
+    let warn='';
+    if(bb>=238) warn=`<br><span class="tag bad">과노출</span> 바탕이 ${bb.toFixed(0)}으로 상한(255)에 붙어 `+
+      `레이저가 올라갈 여유가 ${(255-bb).toFixed(0)}계조뿐입니다. 조명을 낮추거나, `+
+      `'표적지 인쇄'에서 <b>회색 바탕</b>으로 다시 인쇄하십시오.`;
+    else if(bb<=90) warn=`<br><span class="tag mid">어두움</span> 바탕이 ${bb.toFixed(0)}으로 어둡습니다. `+
+      `조도를 높이면 검출이 안정됩니다.`;
+    adv.innerHTML=`<span class="tag ${weak?'mid':'ok'}">${weak?'신호 약함':'신호 충분'}</span> `+
+      `권장 임계값 — 적색 <b>${rt}</b>, 밝기 <b>${lt}</b> `+
+      `<button class="sm ghost" id="bApplyProbe" style="margin-left:6px">적용</button>${warn}`;
+    const btn=document.getElementById('bApplyProbe');
+    if(btn) btn.onclick=()=>{
+      CFG.red=rt; CFG.lum=lt; applyCfgToUI();
+      log(`임계값 적용: 적색 ${rt}, 밝기 ${lt}`);
+    };
+  }
+}
+
+/* ===================== 14. CSV ===================== */
+function exportCsv(){
+  const head=['no','x_mm','y_mm','r_mm','score','score_decimal','is_miss',
+              'frames','peak_signal','area_px','duration_ms','target_dia_mm','calib_mm','calib_mode','mm_per_px','timestamp'];
+  const iso=new Date().toISOString();
+  const rows=S.shots.map((s,i)=>[
+    i+1, s.xmm.toFixed(2), s.ymm.toFixed(2), s.r.toFixed(2),
+    s.score, s.dec.toFixed(2), s.miss?1:0,
+    s.frames, s.peak, s.area, s.dur,
+    CFG.dia, CFG.calib, CFG.mode, S.mmPerPx.toFixed(4), iso
+  ].join(','));
+  const csv='﻿'+head.join(',')+'\n'+rows.join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='shotline_'+iso.slice(0,19).replace(/[:T]/g,'')+'.csv';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+  log('CSV를 저장했습니다.');
+}
+
+/* ===================== 15. 표적지 인쇄 ===================== */
+/*  바탕색에 대하여
+    일반 백지로도 잘 동작합니다. 다만 조명이 너무 밝아 표적이 카메라에
+    거의 순백(240 이상)으로 찍히면, 레이저가 올라갈 여유가 10~15계조밖에
+    남지 않아 조명이 조금만 흔들려도 오검출이 생깁니다.
+    그럴 때만 회색 바탕 옵션을 쓰십시오. [신호 강도 측정]이 바탕 밝기를
+    알려주므로 필요 여부를 수치로 판단하실 수 있습니다.                  */
+function buildTargetSVG(D,N,gray){
+  const R=D/2, step=R/N;
+  const field = gray ? '#B4B4B4' : '#FFFFFF';
+  const blackK = Math.round(N*0.4);
+  let rings='';
+  for(let k=1;k<=N;k++){
+    const rr=step*k;
+    rings+=`<circle cx="0" cy="0" r="${rr}" fill="none" stroke="${k<=blackK?'#fff':'#111'}" stroke-width="0.35"/>`;
+  }
+  let nums='';
+  for(let k=1;k<N;k++){
+    const rr=step*k+step/2, v=N-k;
+    nums+=`<text x="0" y="${rr+1.6}" font-size="4.2" text-anchor="middle"
+       fill="${rr<step*blackK?'#fff':'#111'}" font-family="Helvetica">${v}</text>`;
+  }
+  const marks=[[-R,-R],[R,-R],[R,R],[-R,R]].map(([x,y])=>{
+    const sx=x<0?1:-1, sy=y<0?1:-1;
+    return `<path d="M${x} ${y+sy*7}V${y}H${x+sx*7}" stroke="#111" stroke-width="0.9" fill="none"/>`;
+  }).join('');
+  return `<svg width="${D+18}mm" height="${D+18}mm" viewBox="${-(D/2+9)} ${-(D/2+9)} ${D+18} ${D+18}">
+  <rect x="${-R}" y="${-R}" width="${D}" height="${D}" fill="${field}" stroke="#111" stroke-width="0.6"/>
+  <circle cx="0" cy="0" r="${step*blackK}" fill="#111"/>
+  ${rings}${nums}
+  <line x1="-3" y1="0" x2="3" y2="0" stroke="#fff" stroke-width="0.4"/>
+  <line x1="0" y1="-3" x2="0" y2="3" stroke="#fff" stroke-width="0.4"/>
+  ${marks}
+</svg>`;
+}
+
+/*  ISSF 25m 정밀권총 / 50m 권총 표적 규격 (ISSF 기술규칙 6.3.4.5)
+    링 지름 : 10점 50mm → 1점 500mm (지름 50mm 등간격, 반지름 25mm 등간격)
+    흑심    : 200mm (7~10점 구간)
+    LaserHIT 표적이 바로 이 규격의 축소본입니다. 아래 생성기로 같은 규격을
+    직접 만들면 저작권 문제 없이 논문 부록에 실을 수 있습니다.             */
+const ISSF25 = { dia:500, rings:10, blackDia:200 };
+
+function issfSVG(scale){
+  const D=ISSF25.dia/scale, N=ISSF25.rings, R=D/2, step=R/N;
+  const blackR=(ISSF25.blackDia/scale)/2;
+  let rings='';
+  for(let k=1;k<=N;k++){
+    const rr=step*k;
+    rings+=`<circle cx="0" cy="0" r="${rr.toFixed(3)}" fill="none" stroke="${rr<=blackR+0.01?'#fff':'#111'}" stroke-width="${(0.35/scale*4).toFixed(3)}"/>`;
+  }
+  rings+=`<circle cx="0" cy="0" r="${(12.5/scale).toFixed(3)}" fill="none" stroke="#fff" stroke-width="${(0.3/scale*4).toFixed(3)}"/>`; // 이너텐 25mm
+  let nums='';
+  const fs=(4.2/scale*4);
+  for(let k=1;k<N;k++){
+    const rr=step*k+step/2, v=N-k;
+    nums+=`<text x="0" y="${(rr+fs*0.38).toFixed(2)}" font-size="${fs.toFixed(2)}" text-anchor="middle"
+       fill="${rr<blackR?'#fff':'#111'}" font-family="Helvetica">${v}</text>`;
+  }
+  // 캘리브레이션용 ㄱ자 모서리 표시 — 한 변이 정확히 D인 정사각형
+  const m=(7/scale*4), sw=(0.9/scale*4);
+  const marks=[[-R,-R],[R,-R],[R,R],[-R,R]].map(([x,y])=>{
+    const sx=x<0?1:-1, sy=y<0?1:-1;
+    return `<path d="M${x} ${(y+sy*m).toFixed(2)}V${y}H${(x+sx*m).toFixed(2)}" stroke="#111" stroke-width="${sw.toFixed(2)}" fill="none"/>`;
+  }).join('');
+  const pad=D*0.04;
+  return {D, svg:`<svg width="${(D+pad*2).toFixed(1)}mm" height="${(D+pad*2).toFixed(1)}mm"
+   viewBox="${-(R+pad)} ${-(R+pad)} ${D+pad*2} ${D+pad*2}">
+  <rect x="${-R}" y="${-R}" width="${D}" height="${D}" fill="#FFFFFF" stroke="#111" stroke-width="${sw.toFixed(2)}"/>
+  <circle cx="0" cy="0" r="${blackR.toFixed(3)}" fill="#111"/>
+  ${rings}${nums}
+  <line x1="${-D*0.012}" y1="0" x2="${D*0.012}" y2="0" stroke="#fff" stroke-width="${(sw*0.5).toFixed(2)}"/>
+  <line x1="0" y1="${-D*0.012}" x2="0" y2="${D*0.012}" stroke="#fff" stroke-width="${(sw*0.5).toFixed(2)}"/>
+  ${marks}
+</svg>`};
+}
+
+function printISSF(){
+  const opts=[[4,'1:4 · A4 (LaserHIT 원본과 동일)'],[3,'1:3 · A4 확대'],[2,'1:2 · A3 (권장)'],[1.6,'1:1.6 · A2']];
+  const built=opts.map(([s,l])=>({s,l,...issfSVG(s)}));
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>ISSF 25m 정밀권총 표적</title>
+<style>
+@page{margin:5mm}
+body{margin:0;font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;text-align:center}
+.bar{background:#EDEFF2;padding:12px}
+.bar button{font-size:15px;padding:10px 18px;margin:0 6px;border:0;border-radius:8px;background:#123D6B;color:#fff;font-weight:600}
+.bar select{font-size:14px;padding:8px}
+.hdr{font-size:9pt;color:#555;margin:2mm 0 3mm}
+svg{display:block;margin:0 auto}
+.ftr{font-size:7.5pt;color:#777;margin-top:3mm;line-height:1.6}
+@media print{.bar{display:none}}
+</style></head><body>
+<div class="bar">
+  <select id="sc" onchange="sw()">${built.map((b,i)=>`<option value="${i}"${b.s===2?' selected':''}>${b.l} — 지름 ${b.D.toFixed(1)}mm</option>`).join('')}</select>
+  <button onclick="window.print()">인쇄</button>
+  <span style="font-size:12px;color:#555">배율 <b>100%</b>, '페이지에 맞춤' 해제</span>
+</div>
+<div class="hdr" id="hd"></div>
+<div id="t"></div>
+<div class="ftr">
+  ISSF 기술규칙 6.3.4.5 · 25m 정밀권총 / 50m 권총 표적 규격<br>
+  링 지름 50~500mm(등간격) · 흑심 200mm(7~10점) · 이너텐 25mm — 위 배율로 축소<br>
+  <b>캘리브레이션</b>: 바깥 정사각 테두리의 네 모서리(ㄱ자 표시)를 찍고, 한 변과 링 지름에 같은 값을 넣으십시오.<br>
+  인쇄 후 반드시 자로 한 변을 재어 확인하십시오. 프린터마다 실제 출력 크기가 다릅니다.
+</div>
+<script>
+var A=${JSON.stringify(built.map(b=>b.svg))}, L=${JSON.stringify(built.map(b=>b.l+' — 한 변 및 링 지름 '+b.D.toFixed(1)+'mm'))};
+function sw(){var i=document.getElementById('sc').value;
+  document.getElementById('t').innerHTML=A[i];
+  document.getElementById('hd').textContent='ISSF 25m 정밀권총 표적 · '+L[i];}
+sw();
+<\/script>
+</body></html>`;
+  const w=window.open('','_blank');
+  if(!w){ alert('팝업이 차단되었습니다. 팝업을 허용해 주십시오.'); return; }
+  w.document.write(html); w.document.close();
+}
+
+function printTarget(){
+  const D=CFG.dia, N=CFG.rings;
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>샷라인 표적지 ${D}mm</title>
+<style>
+@page{margin:5mm}
+body{margin:0;font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;text-align:center}
+.hdr{font-size:9pt;color:#555;margin:2mm 0 3mm}
+svg{display:block;margin:0 auto}
+.ftr{font-size:7.5pt;color:#777;margin-top:3mm;line-height:1.6}
+.bar{background:#EDEFF2;padding:12px;margin-bottom:10px}
+.bar button{font-size:15px;padding:10px 18px;margin:0 6px;border:0;border-radius:8px;
+  background:#123D6B;color:#fff;font-weight:600}
+.bar label{font-size:13px;margin:0 10px}
+@media print{.bar{display:none}}
+</style></head><body>
+<div class="bar noprint">
+  <button onclick="window.print()">인쇄</button>
+  <label><input type="checkbox" id="g" onchange="sw()"> 회색 바탕 (과노출일 때만)</label>
+  <span style="font-size:12px;color:#555">인쇄 배율을 반드시 <b>100%</b>로 두십시오</span>
+</div>
+<div class="hdr">샷라인 표적지 · 한 변 ${D}mm · ${N}링</div>
+<div id="t">${buildTargetSVG(D,N,false)}</div>
+<div class="ftr">
+  캘리브레이션 시 <b>바깥 정사각형의 네 모서리</b>를 지정하십시오 (모서리에 ㄱ자 표시가 있습니다).<br>
+  인쇄 후 자로 한 변을 재어 <b>${D}mm</b>인지 확인하십시오. 다르면 앱의 '표적 한 변' 값을 실측값으로 고치십시오.<br>
+  일반 백지로 충분합니다. 앱의 [신호 강도 측정]에서 <b>바탕 밝기가 238 이상</b>으로 나올 때만 회색 바탕을 쓰십시오.
+</div>
+<script>
+var A=${JSON.stringify(buildTargetSVG(D,N,true))}, B=${JSON.stringify(buildTargetSVG(D,N,false))};
+function sw(){ document.getElementById('t').innerHTML = document.getElementById('g').checked ? A : B; }
+<\/script>
+</body></html>`;
+  const w=window.open('','_blank');
+  if(!w){ alert('팝업이 차단되었습니다. 팝업을 허용해 주십시오.'); return; }
+  w.document.write(html); w.document.close();
+}
+
+/* ===================== 16. 버튼 연결 ===================== */
+document.getElementById('bStart').onclick=startCamera;
+document.getElementById('bCalib').onclick=beginCalib;
+document.getElementById('bBg').onclick=beginBgLearn;
+document.getElementById('bTarget').onclick=printTarget;
+document.getElementById('bIssf').onclick=printISSF;
+document.getElementById('bCsv').onclick=exportCsv;
+document.getElementById('bSave').onclick=saveCfg;
+document.getElementById('bDefaults').onclick=()=>{
+  Object.assign(CFG, JSON.parse(JSON.stringify(CFG_DEFAULT)));
+  applyCfgToUI(); log('기본값으로 되돌렸습니다.');
+};
+document.getElementById('bReset').onclick=()=>{
+  S.shots=[]; S.tracks=[]; S.nextId=1;
+  updateTable(); updateStats(); log('탄착 기록을 지웠습니다.');
+};
+const bRun=document.getElementById('bRun');
+bRun.onclick=()=>{
+  if(S.mode==='run'){
+    S.mode='idle'; bRun.textContent='검출 시작'; bRun.className='';
+    badge.textContent='정지됨';
+    log('검출 정지');
+  }else{
+    S.mode='run'; bRun.textContent='검출 정지'; bRun.className='danger';
+    badge.textContent='검출 중';
+    document.getElementById('probeBox').style.display='none';
+    log('검출 시작 — 사격하십시오.');
+  }
+};
+const bProbe=document.getElementById('bProbe');
+bProbe.onclick=()=>{
+  if(S.mode==='probe'){
+    S.mode='idle'; bProbe.textContent='신호 강도 측정'; bProbe.className='ghost sm';
+    badge.textContent='측정 종료';
+  }else{
+    if(!S.bg||!S.bg.ready){ alert('먼저 [배경 학습]을 하십시오.'); return; }
+    S.probe={red:0,lum:0,bg:0,area:0};
+    S.mode='probe'; bProbe.textContent='측정 종료'; bProbe.className='warn sm';
+    document.getElementById('probeBox').style.display='block';
+    badge.textContent='표적의 검은 부분과 흰 부분에\n각각 레이저를 비추십시오';
+    bRun.textContent='검출 시작'; bRun.className='';
+    log('신호 강도 측정 시작');
+  }
+};
+
+/* ===================== 17. 시작 ===================== */
+loadCfg();
+bindCfg();
+applyCfgToUI();
+log('준비 완료. [카메라 시작]을 누르십시오.');
+if(location.protocol!=='https:' && location.hostname!=='localhost' && location.protocol!=='file:'){
+  log('⚠ HTTPS가 아닙니다. 카메라 권한이 거부될 수 있습니다.');
+}
+</script>
+</body>
+</html>
