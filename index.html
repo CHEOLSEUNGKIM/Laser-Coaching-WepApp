@@ -37,7 +37,10 @@ h1{font-size:18px;margin:0 0 2px;letter-spacing:-.02em}
   text-transform:uppercase;font-family:var(--mono);font-weight:600}
 
 /* ---------- 영상 ---------- */
-#stage{position:relative;background:#000;border-radius:8px;overflow:hidden;line-height:0}
+/* ※ 예전에는 여기에 line-height:0 을 넣어 영상 아래 여백을 없앴는데,
+      그러면 자식 요소(안내문)까지 줄높이 0을 물려받아 여러 줄이 한 자리에 겹쳐 그려집니다.
+      #video 에 display:block 이 있으면 여백은 어차피 생기지 않으므로 제거했습니다. */
+#stage{position:relative;background:#000;border-radius:8px;overflow:hidden}
 #video{width:100%;display:block;background:#000}
 #overlay{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none}
 #stage.calib{cursor:crosshair}
@@ -55,11 +58,15 @@ h1{font-size:18px;margin:0 0 2px;letter-spacing:-.02em}
   font-family:var(--mono);font-size:11px;color:#fff;background:rgba(0,0,0,.62);
   padding:4px 8px;border-radius:5px;line-height:1.45;white-space:pre
 }
+/* left:50% + translateX(-50%) 를 쓰면 절대위치 요소의 폭이 '왼쪽 50%부터 오른쪽 끝까지'로
+   제한되어, 실제로는 미리보기 폭의 절반만 쓰고 불필요하게 여러 줄로 접힙니다.
+   left/right 를 양쪽에 지정해 폭을 온전히 쓰도록 합니다. */
 .hint{
-  position:absolute;left:50%;transform:translateX(-50%);bottom:10px;z-index:4;
-  font-size:13px;color:#fff;background:rgba(0,0,0,.7);padding:7px 14px;border-radius:8px;
-  text-align:center;max-width:90%
+  position:absolute;left:8px;right:8px;bottom:8px;z-index:4;
+  font-size:13px;color:#fff;background:rgba(0,0,0,.72);padding:7px 12px;border-radius:8px;
+  text-align:center;line-height:1.5
 }
+.hint em{display:block;font-style:normal;font-size:11.5px;opacity:.8;margin-top:3px;line-height:1.45}
 
 /* ---------- 버튼 ---------- */
 .btnrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
@@ -644,7 +651,7 @@ function beginCalib(){
   stage.classList.add('calib');
   document.getElementById('bBg').disabled=true;
   document.getElementById('bRun').disabled=true;
-  showHint(`${calibTargetWord()} <b>${cornerNames()[0]}</b> 지점을 누르십시오<br><span style="font-size:11.5px;opacity:.85">${loupeHintText()}</span>`);
+  showHint(`${calibTargetWord()} <b>${cornerNames()[0]}</b> 지점을 누르십시오${loupeHintText()}`);
   log(`캘리브레이션 시작 — ${CFG.mode==='ring'?'링 위 12·3·6·9시':'네 모서리를 시계방향으로'} 지정하십시오.`);
 }
 function showHint(html){ hintEl.innerHTML=html; hintEl.style.display='block'; }
@@ -697,7 +704,7 @@ overlay.addEventListener('pointerup',ev=>{
   log(`기준점 ${calibIdx+1}(${cornerNames()[calibIdx]}) = (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
   calibIdx++;
   if(calibIdx<4){
-    showHint(`${calibTargetWord()} <b>${cornerNames()[calibIdx]}</b> 지점을 누르십시오<br><span style="font-size:11.5px;opacity:.85">${loupeHintText()}</span>`);
+    showHint(`${calibTargetWord()} <b>${cornerNames()[calibIdx]}</b> 지점을 누르십시오 <span style="opacity:.7">(${calibIdx+1}/4)</span>`);
   }else{
     finishCalib();
   }
@@ -706,7 +713,7 @@ overlay.addEventListener('pointercancel',()=>{ dragging=false; loupe.style.displ
 
 /* 돋보기 안에 십자선 기준 위치를 그린다 (손가락 위치가 아니라 실제 확정될 지점) */
 function loupeHintText(){
-  return '손가락을 <b>댄 채로 조금씩 끌면</b> 4배 정밀하게 맞출 수 있습니다.<br>돋보기 십자선이 실제 찍히는 지점입니다.';
+  return '<em>손가락을 <b>댄 채로 조금씩 끌어</b> 맞추십시오</em>';
 }
 
 function finishCalib(){
