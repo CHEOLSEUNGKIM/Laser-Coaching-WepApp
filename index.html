@@ -5,1627 +5,1582 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 검출엔진 v1</title>
+<title>샷라인 SHOTLINE</title>
 <style>
-/* ============================================================
-   저사양 아이패드 대응: 그라디언트/그림자/블러 사용하지 않음
-   ============================================================ */
+/* ==========================================================================
+   샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
+   ========================================================================== */
 :root{
   --ink:#12161D; --ink60:#5A6270; --ink40:#8C93A0;
   --bg:#EDEFF2; --card:#FFFFFF; --line:#D6DAE0;
-  --lane:#123D6B; --shot:#E2452F; --gain:#17A67C; --warn:#C77700;
+  --lane:#123D6B; --lane-soft:#DCE6F1;
+  --shot:#E2452F; --gain:#17A67C; --warn:#C77700;
   --mono:ui-monospace,'SF Mono',Menlo,monospace;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;padding:0}
+html,body{margin:0;padding:0;height:100%}
 body{
-  background:var(--bg); color:var(--ink);
+  background:var(--bg);color:var(--ink);
   font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;
-  font-size:15px; line-height:1.5;
+  font-size:15px;line-height:1.5;overscroll-behavior:none;
   padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  overscroll-behavior:none;
 }
-.wrap{max-width:1400px;margin:0 auto;padding:12px}
-h1{font-size:18px;margin:0 0 2px;letter-spacing:-.02em}
-.sub{font-size:12px;color:var(--ink60);margin:0 0 12px;font-family:var(--mono)}
+.screen{display:none}
+.screen.on{display:block}
+.wrap{max-width:980px;margin:0 auto;padding:12px}
 
-.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:12px;align-items:start}
-@media(max-width:1000px){.grid{grid-template-columns:1fr}}
+h1{font-size:20px;margin:0 0 2px;letter-spacing:-.02em}
+h2{font-size:13px;margin:0 0 8px;color:var(--ink60);font-family:var(--mono);
+   text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+h3{font-size:15px;margin:0 0 6px}
+.sub{font-size:12px;color:var(--ink60);font-family:var(--mono);margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+.note{font-size:12.5px;color:var(--ink60);line-height:1.65;margin:8px 0 0}
+.note b{color:var(--ink)}
+.muted{color:var(--ink40)}
 
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
-.card h2{font-size:13px;margin:0 0 8px;letter-spacing:.02em;color:var(--ink60);
-  text-transform:uppercase;font-family:var(--mono);font-weight:600}
-
-/* ---------- 영상 ---------- */
-/* ※ 예전에는 여기에 line-height:0 을 넣어 영상 아래 여백을 없앴는데,
-      그러면 자식 요소(안내문)까지 줄높이 0을 물려받아 여러 줄이 한 자리에 겹쳐 그려집니다.
-      #video 에 display:block 이 있으면 여백은 어차피 생기지 않으므로 제거했습니다. */
-#stage{position:relative;background:#000;border-radius:8px;overflow:hidden}
-#video{width:100%;display:block;background:#000}
-#overlay{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none}
-#stage.calib{cursor:crosshair}
-
-#loupe{
-  position:absolute;width:180px;height:180px;border-radius:50%;
-  border:3px solid #fff;overflow:hidden;pointer-events:none;display:none;z-index:5;
-  background:#000
-}
-#loupe canvas{width:180px;height:180px;display:block}
-#loupeX{position:absolute;left:0;top:0;width:180px;height:180px;pointer-events:none}
-
-.badge{
-  position:absolute;left:8px;top:8px;z-index:4;
-  font-family:var(--mono);font-size:11px;color:#fff;background:rgba(0,0,0,.62);
-  padding:4px 8px;border-radius:5px;line-height:1.45;white-space:pre
-}
-/* left:50% + translateX(-50%) 를 쓰면 절대위치 요소의 폭이 '왼쪽 50%부터 오른쪽 끝까지'로
-   제한되어, 실제로는 미리보기 폭의 절반만 쓰고 불필요하게 여러 줄로 접힙니다.
-   left/right 를 양쪽에 지정해 폭을 온전히 쓰도록 합니다. */
-.hint{
-  position:absolute;left:8px;right:8px;bottom:8px;z-index:4;
-  font-size:13px;color:#fff;background:rgba(0,0,0,.72);padding:7px 12px;border-radius:8px;
-  text-align:center;line-height:1.5
-}
-.hint em{display:block;font-style:normal;font-size:11.5px;opacity:.8;margin-top:3px;line-height:1.45}
-
-/* ---------- 버튼 ---------- */
-.btnrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-button{
-  font-family:inherit;font-size:14px;font-weight:600;border:0;border-radius:8px;
-  padding:11px 14px;cursor:pointer;background:var(--lane);color:#fff;
-  flex:1 1 auto;min-width:96px
-}
+button{font-family:inherit;font-size:15px;font-weight:600;border:0;border-radius:9px;
+  padding:13px 16px;cursor:pointer;background:var(--lane);color:#fff}
 button.ghost{background:#E3E8EE;color:var(--lane)}
-button.warn{background:var(--warn)}
 button.danger{background:var(--shot)}
-button.sm{padding:7px 10px;font-size:12.5px;min-width:0;flex:0 0 auto}
+button.warn{background:var(--warn)}
+button.big{width:100%;padding:17px;font-size:17px}
+button.sm{padding:8px 11px;font-size:13px;border-radius:7px}
 button:disabled{opacity:.4}
 button:active{opacity:.75}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1 1 auto}
 
-/* ---------- 수치판 ---------- */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
-  border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.stats div{background:var(--card);padding:7px 9px}
-.stats dt{font-family:var(--mono);font-size:9.5px;color:var(--ink40);letter-spacing:.05em}
-.stats dd{margin:1px 0 0;font-family:var(--mono);font-size:17px;font-weight:600}
-.stats dd small{font-size:10px;font-weight:400;color:var(--ink40)}
+input[type=text],input[type=number],input[type=password],select,textarea{
+  font-family:inherit;font-size:15px;padding:10px;border:1px solid var(--line);
+  border-radius:8px;width:100%;background:#fff}
+textarea{font-family:var(--mono);font-size:12px;min-height:110px;resize:vertical}
+label.fl{display:block;font-size:12.5px;color:var(--ink60);margin:10px 0 4px}
 
-/* ---------- 설정 ---------- */
-.field{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;
-  padding:6px 0;border-bottom:1px solid var(--line)}
-.field:last-child{border-bottom:0}
-.field label{font-size:13px}
-.field label i{display:block;font-style:normal;font-size:11px;color:var(--ink40);
-  font-family:var(--mono);margin-top:1px}
-.field input[type=number]{width:88px;padding:6px 8px;border:1px solid var(--line);
-  border-radius:6px;font-family:var(--mono);font-size:14px;text-align:right}
-.field input[type=range]{width:150px}
-.field .rv{font-family:var(--mono);font-size:13px;font-weight:600;min-width:52px;text-align:right}
-.rowr{display:flex;align-items:center;gap:8px}
-
-/* ---------- 표 ---------- */
-table{width:100%;border-collapse:collapse;font-size:12.5px}
-th,td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:left}
 th{font-family:var(--mono);font-size:9.5px;color:var(--ink40);text-transform:uppercase;font-weight:600}
 td.n{font-family:var(--mono);text-align:right}
-td.miss{color:var(--shot)}
-.scroll{max-height:270px;overflow-y:auto;-webkit-overflow-scrolling:touch}
-
-#log{font-family:var(--mono);font-size:10.5px;line-height:1.55;color:var(--ink60);
-  max-height:150px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
-
-.note{font-size:12px;color:var(--ink60);line-height:1.6;margin:8px 0 0}
-.note b{color:var(--ink)}
-.tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:1px 6px;
-  border-radius:99px;border:1px solid var(--line);color:var(--ink60)}
+.tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:99px;border:1px solid var(--line)}
+.tag.e{background:rgba(23,166,124,.1);border-color:#9BD8C5;color:#0F7A5B}
+.tag.c{background:var(--bg)}
 .tag.ok{background:#E6F5F0;border-color:#9BD8C5;color:#0F7A5B}
 .tag.bad{background:#FCE9E6;border-color:#F0B3A8;color:#B02D18}
 .tag.mid{background:#FBF0DC;border-color:#E5C88A;color:#8A5A00}
-details{margin-top:6px}
-summary{font-size:12.5px;color:var(--lane);cursor:pointer;font-weight:600;padding:4px 0}
+
+/* ---------- 로그인 ---------- */
+#scLogin .wrap{max-width:420px;padding-top:26px}
+.lgHead{text-align:center;margin-bottom:18px}
+.lgHead .lane{font-family:var(--mono);font-size:12px;color:var(--lane);letter-spacing:.1em}
+.lgHead .cls{font-size:34px;font-weight:700;letter-spacing:-.03em;margin:2px 0 0}
+.lgHead .ses{font-size:14px;color:var(--ink60)}
+.numDisp{font-family:var(--mono);font-size:44px;font-weight:600;text-align:center;
+  background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px;
+  letter-spacing:.06em;min-height:74px}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pad button{padding:18px 0;font-size:22px;font-family:var(--mono);background:#fff;color:var(--ink);
+  border:1px solid var(--line)}
+.pad button.act{background:var(--lane);color:#fff;border-color:var(--lane)}
+#lgMsg{min-height:22px;text-align:center;font-size:13px;margin-top:8px}
+.tlink{display:block;width:100%;margin-top:16px;background:none;color:var(--ink40);
+  font-size:12.5px;font-weight:500;padding:8px}
+
+/* ---------- 학생 헤더/탭 ---------- */
+.stHead{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:10px}
+.stHead .who{font-size:15px;font-weight:600}
+.stHead .meta{font-family:var(--mono);font-size:11px;color:var(--ink40)}
+.stHead .prog{font-family:var(--mono);font-size:19px;font-weight:600;color:var(--lane)}
+.tabbar{display:flex;gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:10px;overflow:hidden;margin-bottom:10px}
+.tabbar button{flex:1;background:var(--card);color:var(--ink40);padding:11px 4px;font-size:13.5px;border-radius:0}
+.tabbar button[aria-selected=true]{background:var(--lane);color:#fff}
+.pane{display:none}
+.pane.on{display:block}
+
+/* ---------- 카메라 ---------- */
+#stage{position:relative;background:#000;border-radius:9px;overflow:hidden}
+#video{width:100%;display:block;background:#000}
+#overlay{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none}
+.badge{position:absolute;left:8px;top:8px;z-index:4;font-family:var(--mono);font-size:11px;
+  color:#fff;background:rgba(0,0,0,.62);padding:4px 8px;border-radius:5px;line-height:1.45;white-space:pre}
+.hint{position:absolute;left:8px;right:8px;bottom:8px;z-index:4;font-size:13px;color:#fff;
+  background:rgba(0,0,0,.72);padding:7px 12px;border-radius:8px;text-align:center;line-height:1.5}
+.hint em{display:block;font-style:normal;font-size:11.5px;opacity:.8;margin-top:3px;line-height:1.45}
+#loupe{position:absolute;width:180px;height:180px;border-radius:50%;border:3px solid #fff;
+  overflow:hidden;pointer-events:none;display:none;z-index:5;background:#000}
+#loupe canvas{width:180px;height:180px;display:block}
+#loupeX{position:absolute;left:0;top:0;width:180px;height:180px;pointer-events:none}
+
+/* ---------- 수치판 ---------- */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-top:10px}
+.stats.q4{grid-template-columns:repeat(4,1fr)}
+.stats div{background:var(--card);padding:8px 10px}
+.stats dt{font-family:var(--mono);font-size:9.5px;color:var(--ink40);letter-spacing:.05em}
+.stats dd{margin:1px 0 0;font-family:var(--mono);font-size:19px;font-weight:600}
+.stats dd small{font-size:10px;font-weight:400;color:var(--ink40)}
+
+.shotlist{list-style:none;margin:10px 0 0;padding:0;border-top:1px solid var(--line);
+  max-height:200px;overflow-y:auto}
+.shotlist li{display:flex;align-items:center;gap:9px;padding:6px 2px;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:12px}
+.shotlist .no{color:var(--ink40);width:34px}
+.shotlist .pos{flex:1;color:var(--ink60)}
+.shotlist .sc{font-weight:600;font-size:14px}
+.shotlist li.miss .sc{color:var(--shot)}
+
+/* ---------- 코칭 ---------- */
+.diag{border:1px solid var(--line);border-left:3px solid var(--shot);border-radius:0 10px 10px 0;
+  padding:12px 13px;margin-top:10px;background:#fff}
+.diag .t{font-family:var(--mono);font-size:10px;color:var(--shot);letter-spacing:.1em}
+.diag h4{margin:5px 0;font-size:16px;font-weight:600;line-height:1.4}
+.diag p{margin:0;font-size:13.5px;color:var(--ink60);line-height:1.65}
+.drill{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:7px}
+.drill li{display:flex;gap:10px;align-items:flex-start;background:var(--lane-soft);
+  border-radius:9px;padding:10px 12px;font-size:13.5px;line-height:1.55}
+.drill .k{font-family:var(--mono);font-size:10px;font-weight:600;color:#fff;background:var(--lane);
+  border-radius:5px;padding:2px 6px;flex:none;margin-top:2px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-family:var(--mono);
+  font-size:10.5px;color:var(--ink60)}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+.chk{display:flex;align-items:center;gap:9px;margin-top:10px;font-size:13.5px}
+.chk input{width:22px;height:22px}
+
+.switcher{display:flex;gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:9px;overflow:hidden;margin-bottom:9px}
+.switcher button{flex:1;background:var(--card);color:var(--ink40);padding:8px 4px;font-size:12px;border-radius:0}
+.switcher button[aria-pressed=true]{background:var(--ink);color:#fff}
+.delta{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;
+  border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:9px}
+.delta .v{font-family:var(--mono);font-size:19px;font-weight:600}
+.delta .l{font-family:var(--mono);font-size:9.5px;color:var(--ink40);letter-spacing:.06em}
+.delta .a{font-family:var(--mono);color:var(--gain)}
+.delta .up{color:var(--gain)}
+
+.rank{list-style:none;margin:0;padding:0}
+.rank li{display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--line);font-size:14px}
+.rank .p{font-family:var(--mono);font-size:14px;font-weight:600;width:30px;color:var(--ink40)}
+.rank li.me{background:var(--lane-soft);border-radius:7px}
+.rank li.me .p{color:var(--lane)}
+.rank .nm{flex:1}
+.rank .sc{font-family:var(--mono);font-weight:600}
+
+#log{font-family:var(--mono);font-size:10.5px;line-height:1.55;color:var(--ink60);
+  max-height:130px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;padding:5px 0}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
-<div class="wrap">
 
-  <h1>샷라인 · 레이저 검출 엔진 v1</h1>
-  <p class="sub">SHOTLINE DETECTION ENGINE — 현장 실측/튜닝용</p>
-
-  <div class="grid">
-
-    <!-- ================= 왼쪽: 영상 ================= -->
-    <div>
-      <div class="card">
-        <div id="stage">
-          <video id="video" playsinline muted autoplay></video>
-          <canvas id="overlay"></canvas>
-          <div class="badge" id="badge">카메라 대기</div>
-          <div class="hint" id="hint" style="display:none"></div>
-          <div id="loupe"><canvas id="loupeC" width="180" height="180"></canvas>
-            <svg id="loupeX" viewBox="0 0 180 180">
-              <line x1="90" y1="60" x2="90" y2="82" stroke="#E2452F" stroke-width="2"/>
-              <line x1="90" y1="98" x2="90" y2="120" stroke="#E2452F" stroke-width="2"/>
-              <line x1="60" y1="90" x2="82" y2="90" stroke="#E2452F" stroke-width="2"/>
-              <line x1="98" y1="90" x2="120" y2="90" stroke="#E2452F" stroke-width="2"/>
-              <circle cx="90" cy="90" r="1.6" fill="#E2452F"/>
-            </svg>
-          </div>
-        </div>
-
-        <div class="btnrow">
-          <button id="bStart">카메라 시작</button>
-          <button id="bCalib" class="ghost" disabled>표적 맞추기</button>
-          <button id="bBg" class="ghost" disabled>배경 학습</button>
-          <button id="bRun" disabled>검출 시작</button>
-        </div>
-        <div class="btnrow">
-          <button id="bProbe" class="ghost sm" disabled>신호 강도 측정</button>
-          <button id="bReset" class="ghost sm" disabled>탄착 지우기</button>
-          <button id="bTarget" class="ghost sm">샷라인 표적</button>
-          <button id="bIssf" class="ghost sm">ISSF 표적</button>
-          <button id="bCsv" class="ghost sm" disabled>CSV 저장</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>실시간 수치</h2>
-        <dl class="stats">
-          <div><dt>FPS</dt><dd id="mFps">–</dd></div>
-          <div><dt>처리시간</dt><dd id="mMs">–<small>ms</small></dd></div>
-          <div><dt>검출 발수</dt><dd id="mShots">0</dd></div>
-          <div><dt>표적이탈</dt><dd id="mMiss">0</dd></div>
-        </dl>
-        <dl class="stats" style="margin-top:6px">
-          <div><dt>해상도</dt><dd id="mRes" style="font-size:13px">–</dd></div>
-          <div><dt>정밀도</dt><dd id="mMmpx" style="font-size:13px">–</dd></div>
-          <div><dt>평균 점수</dt><dd id="mAvg">–</dd></div>
-          <div><dt>탄착군</dt><dd id="mGroup">–<small>mm</small></dd></div>
-        </dl>
-        <p class="note" id="qualityNote"></p>
-      </div>
-
-      <div class="card">
-        <h2>탄착 기록</h2>
-        <div class="scroll">
-          <table>
-            <thead><tr>
-              <th>#</th><th class="n">x(mm)</th><th class="n">y(mm)</th>
-              <th class="n">점수</th><th class="n">소수점</th>
-              <th class="n">프레임</th><th class="n">신호</th>
-            </tr></thead>
-            <tbody id="tbody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ================= 오른쪽: 설정 ================= -->
-    <div>
-      <div class="card">
-        <h2>표적 규격</h2>
-        <div class="field">
-          <label>표적 프리셋<i>고르면 아래 값이 자동으로 채워집니다</i></label>
-          <select id="cfgPreset" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px">
-            <option value="own300">샷라인 자체 표적 300mm</option>
-            <option value="lh4">LaserHIT 25M · 1:4 (A4 원본)</option>
-            <option value="lh3">LaserHIT 25M · 1:3 (A4 133%)</option>
-            <option value="lh2">LaserHIT 25M · 1:2 (A3 200%)</option>
-            <option value="issf25">ISSF 25m 정밀권총 원본 500mm</option>
-            <option value="custom">직접 입력</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>캘리브레이션 방식<i>화면에서 무엇을 찍을 것인가</i></label>
-          <select id="cfgMode" style="padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:13px">
-            <option value="square">정사각형 네 모서리</option>
-            <option value="ring">링 위 네 점 (12·3·6·9시)</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>캘리브레이션 기준 치수<i id="labCalib">찍을 정사각형의 한 변 (mm)</i></label>
-          <input type="number" id="cfgCalib" value="300" min="20" max="2000" step="0.5">
-        </div>
-        <div class="field">
-          <label>채점용 링 지름<i>최외곽(1점) 링의 바깥 지름 (mm)</i></label>
-          <input type="number" id="cfgDia" value="300" min="20" max="2000" step="0.5">
-        </div>
-        <div class="field">
-          <label>링 수<i>10점부터 1점까지</i></label>
-          <input type="number" id="cfgRings" value="10" min="3" max="20" step="1">
-        </div>
-        <p class="note" id="presetNote">앱은 인쇄된 링을 보지 않고 <b>지정한 네 점 + 위 수치</b>로 점수를 계산합니다.
-        캘리브레이션 기준과 채점 기준이 서로 다른 표적(예: LaserHIT)도 지원합니다.</p>
-      </div>
-
-      <div class="card">
-        <h2>검출 파라미터</h2>
-        <div class="field">
-          <label>적색 임계값<i>0~100 — 붉은 기운이 여유의 몇 % 를 채웠는가</i></label>
-          <span class="rowr"><input type="range" id="cfgRed" min="5" max="100" value="22"><span class="rv" id="vRed">22</span></span>
-        </div>
-        <div class="field">
-          <label>밝기 임계값<i>0~100 — 흰색으로 포화된 코어 대응</i></label>
-          <span class="rowr"><input type="range" id="cfgLum" min="10" max="100" value="38"><span class="rv" id="vLum">38</span></span>
-        </div>
-        <div class="field">
-          <label>최소 면적<i>minArea — 잡음 제거</i></label>
-          <span class="rowr"><input type="range" id="cfgMinA" min="1" max="60" value="4"><span class="rv" id="vMinA">4</span></span>
-        </div>
-        <div class="field">
-          <label>최대 면적<i>maxArea — 조명/반사 제거</i></label>
-          <span class="rowr"><input type="range" id="cfgMaxA" min="50" max="4000" value="900" step="50"><span class="rv" id="vMaxA">900</span></span>
-        </div>
-        <div class="field">
-          <label>확정 프레임 수<i>minFrames — 1이면 짧은 펄스도 포착</i></label>
-          <span class="rowr"><input type="range" id="cfgMinF" min="1" max="6" value="1"><span class="rv" id="vMinF">1</span></span>
-        </div>
-        <div class="field">
-          <label>재격발 대기<i>cooldown — 같은 발 중복 방지</i></label>
-          <span class="rowr"><input type="range" id="cfgCool" min="80" max="1200" value="300" step="20"><span class="rv" id="vCool">300</span></span>
-        </div>
-        <div class="field">
-          <label>표적 이탈 검출<i>화각 전체를 낮은 해상도로 감시</i></label>
-          <span class="rowr"><input type="checkbox" id="cfgMiss" checked style="width:22px;height:22px"></span>
-        </div>
-        <div class="btnrow">
-          <button class="ghost sm" id="bDefaults">기본값 복원</button>
-          <button class="ghost sm" id="bSave">설정 저장</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>신호 강도 측정</h2>
-        <p class="note" style="margin-top:0">임계값을 감으로 정하지 마십시오. 아래 버튼을 누르고
-        표적의 <b>검은 부분</b>과 <b>흰 부분</b>에 각각 레이저를 비춰 실측한 뒤 그 사이 값으로 정하십시오.</p>
-        <div id="probeBox" style="display:none">
-          <dl class="stats" style="margin-top:8px">
-            <div><dt>적색 최대</dt><dd id="pRed">–</dd></div>
-            <div><dt>밝기 최대</dt><dd id="pLum">–</dd></div>
-            <div><dt>바탕 밝기</dt><dd id="pBg">–</dd></div>
-            <div><dt>덩어리 크기</dt><dd id="pArea">–</dd></div>
-          </dl>
-          <p class="note" id="probeAdvice"></p>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>진단 로그</h2>
-        <div id="log"></div>
-      </div>
-
-      <div class="card">
-        <h2>사용 순서</h2>
-        <p class="note" style="margin-top:0">
-        <b>1.</b> 표적지를 인쇄해 벽에 붙입니다 (정사각 테두리가 반드시 보이게).<br>
-        <b>2.</b> 태블릿을 표적에서 2m 지점에 고정합니다. 흔들리면 안 됩니다.<br>
-        <b>3.</b> [카메라 시작] → [표적 맞추기]로 네 모서리를 찍습니다.
-        손가락을 대면 돋보기가 뜨고, <b>손을 뗄 때 확정</b>됩니다.<br>
-        <b>4.</b> 아무도 쏘지 않는 상태에서 [배경 학습]을 누릅니다 (2초).<br>
-        <b>5.</b> [신호 강도 측정]으로 임계값을 정합니다.<br>
-        <b>6.</b> [검출 시작] 후 실제로 쏴 봅니다.</p>
-        <details>
-          <summary>레이저 포인터로도 테스트할 수 있습니다</summary>
-          <p class="note">총이 완성되기 전이라도 <b>일반 적색 레이저 포인터</b>로 캘리브레이션과 검출을
-          그대로 검증할 수 있습니다. 포인터는 계속 켜져 있으므로 [확정 프레임 수]를 3 이상으로 올리고,
-          한 지점을 0.5초 비춘 뒤 끄면 1발로 기록됩니다.</p>
-        </details>
-      </div>
+<!-- 카메라 미리보기 — 교사/학생 화면 사이를 이동한다 (스트림이 끊기지 않음) -->
+<div id="stagePark" style="display:none">
+  <div id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+    <div class="badge" id="badge">준비 중</div>
+    <div class="hint" id="hint" style="display:none"></div>
+    <div id="loupe"><canvas id="loupeC" width="180" height="180"></canvas>
+      <svg id="loupeX" viewBox="0 0 180 180">
+        <line x1="90" y1="60" x2="90" y2="82" stroke="#E2452F" stroke-width="2"/>
+        <line x1="90" y1="98" x2="90" y2="120" stroke="#E2452F" stroke-width="2"/>
+        <line x1="60" y1="90" x2="82" y2="90" stroke="#E2452F" stroke-width="2"/>
+        <line x1="98" y1="90" x2="120" y2="90" stroke="#E2452F" stroke-width="2"/>
+        <circle cx="90" cy="90" r="1.6" fill="#E2452F"/>
+      </svg>
     </div>
   </div>
 </div>
 
+<!-- ==================== 로그인 ==================== -->
+<section class="screen on" id="scLogin"><div class="wrap">
+  <div class="lgHead">
+    <div class="lane">SHOTLINE · 레이저 사격</div>
+    <div class="cls" id="lgClass">수업 미설정</div>
+    <div class="ses" id="lgSes">교사가 먼저 수업을 설정해야 합니다</div>
+  </div>
+  <div class="numDisp" id="lgNum">–</div>
+  <div class="pad" id="lgPad"></div>
+  <div id="lgMsg"></div>
+  <button class="big" id="lgEnter" style="margin-top:10px" disabled>입장</button>
+  <div id="lgOtherBox" style="margin-top:10px;display:none">
+    <label class="fl">내 학급을 고르십시오 (보강)</label>
+    <select id="lgOtherCls"></select>
+  </div>
+  <button class="tlink" id="lgOther">다른 반 학생입니다 (보강)</button>
+  <button class="tlink" id="lgTeacher" style="margin-top:0">교사 설정</button>
+</div></section>
+
+<!-- ==================== 학생 ==================== -->
+<section class="screen" id="scStudent"><div class="wrap">
+  <div class="stHead">
+    <div>
+      <div class="who" id="stWho">–</div>
+      <div class="meta" id="stMeta">–</div>
+    </div>
+    <div class="prog" id="stProg">0/10</div>
+    <button class="ghost sm" id="stExit" style="flex:none">종료</button>
+  </div>
+
+  <nav class="tabbar" id="stTabs"></nav>
+
+  <!-- 촬영 -->
+  <div class="pane on" id="paneShoot">
+    <div class="card" style="padding:10px">
+      <div id="stageHostS"></div>
+      <div class="row" style="margin-top:9px">
+        <button class="big" id="btnFire" style="flex:2 1 60%">사격 시작</button>
+        <button class="ghost" id="btnUndo" style="flex:1 1 30%" disabled>직전 발 취소</button>
+      </div>
+      <dl class="stats" id="shStats">
+        <div><dt>발수</dt><dd id="shN">0</dd></div>
+        <div><dt>합계</dt><dd id="shSum">0</dd></div>
+        <div><dt>평균</dt><dd id="shAvg">–</dd></div>
+      </dl>
+      <ul class="shotlist" id="shList"></ul>
+    </div>
+  </div>
+
+  <!-- AI 코칭 (실험집단만 삽입) -->
+  <div class="pane" id="paneCoach">
+    <div class="card">
+      <svg viewBox="0 0 400 400" style="width:100%;display:block" id="coachSvg" aria-label="이번 회차 탄착군 분석"></svg>
+      <div class="legend">
+        <span><i style="background:var(--shot)"></i>탄착점</span>
+        <span><i style="background:var(--lane)"></i>평균탄착점(MPI)</span>
+        <span><i style="background:transparent;border:1.5px dashed var(--ink40)"></i>탄착군 범위</span>
+      </div>
+      <dl class="stats">
+        <div><dt>평균</dt><dd id="cAvg">–</dd></div>
+        <div><dt>탄착군</dt><dd id="cGrp">–<small>mm</small></dd></div>
+        <div><dt>편향</dt><dd id="cMpi" style="font-size:15px">–</dd></div>
+      </dl>
+      <div class="diag">
+        <span class="t">AI 진단</span>
+        <h4 id="cTitle">–</h4>
+        <p id="cBody">–</p>
+      </div>
+      <h2 style="margin:16px 0 6px">교정 드릴</h2>
+      <ul class="drill" id="cDrill"></ul>
+      <label class="chk"><input type="checkbox" id="cDone"> 드릴을 해봤습니다</label>
+      <div class="row" style="margin-top:12px">
+        <button class="ghost" id="cToRec">기록 보기</button>
+        <button id="cFinish">완료 · 다음 학생</button>
+      </div>
+      <div class="row" style="margin-top:7px">
+        <button class="ghost sm" id="cRedo">이 회차 다시 쏘기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 기록 -->
+  <div class="pane" id="paneRecord">
+    <div class="card">
+      <div class="switcher" id="recSw">
+        <button data-m="pre" aria-pressed="false">사전(1회차)</button>
+        <button data-m="post" aria-pressed="true">이번 회차</button>
+        <button data-m="both" aria-pressed="false">겹쳐보기</button>
+      </div>
+      <svg viewBox="0 0 400 400" style="width:100%;display:block" id="recSvg"></svg>
+      <div class="legend">
+        <span><i style="background:#6B7480"></i>사전 탄착</span>
+        <span><i style="background:var(--shot)"></i>이번 탄착</span>
+      </div>
+      <div id="recDelta"></div>
+      <h2 style="margin:16px 0 6px">회차별 평균 점수</h2>
+      <svg viewBox="0 0 320 150" style="width:100%;display:block" id="recChart"></svg>
+      <div class="row" style="margin-top:12px">
+        <button id="rFinish">완료 · 다음 학생</button>
+        <button class="ghost" id="rRedo" style="flex:0 1 40%">다시 쏘기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 랭킹 -->
+  <div class="pane" id="paneRank">
+    <div class="card">
+      <div class="switcher" id="rkSw">
+        <button data-m="class" aria-pressed="true">우리 반</button>
+        <button data-m="grade" aria-pressed="false">학년 전체</button>
+      </div>
+      <ul class="rank" id="rkList"></ul>
+      <p class="note" id="rkNote"></p>
+    </div>
+  </div>
+</div></section>
+
+<!-- ==================== 교사 ==================== -->
+<section class="screen" id="scTeacher"><div class="wrap">
+  <h1>교사 설정</h1>
+  <p class="sub">SHOTLINE TEACHER</p>
+
+  <div class="card" id="tcPinBox">
+    <h2>PIN</h2>
+    <input type="password" id="tcPin" inputmode="numeric" placeholder="PIN 입력">
+    <div class="row" style="margin-top:9px">
+      <button id="tcPinOk">확인</button>
+      <button class="ghost" id="tcPinBack">돌아가기</button>
+    </div>
+    <p class="note" id="tcPinMsg"></p>
+  </div>
+
+  <div id="tcBody" style="display:none">
+    <div class="card">
+      <h2>이번 수업</h2>
+      <div class="row">
+        <div style="flex:1 1 45%"><label class="fl">학급</label><select id="tcClass"></select></div>
+        <div style="flex:1 1 45%"><label class="fl">회차</label><select id="tcSession"></select></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="tcLock">이 수업으로 고정</button>
+        <button class="ghost" id="tcUnlock">고정 해제</button>
+      </div>
+      <p class="note" id="tcLockState"></p>
+    </div>
+
+    <div class="card">
+      <h2>표적 준비 (수업마다 한 번)</h2>
+      <p class="note" style="margin-top:0">태블릿을 거치한 뒤 <b>표적 맞추기 → 배경 학습</b> 순서로
+      한 번만 해두면, 학생이 바뀌어도 그대로 유지됩니다.</p>
+      <div id="stageHostT" style="margin:10px 0"></div>
+      <div class="row" style="margin-top:9px">
+        <button id="tcCam">카메라 시작</button>
+        <button class="ghost" id="tcCalib" disabled>표적 맞추기</button>
+        <button class="ghost" id="tcBg" disabled>배경 학습</button>
+      </div>
+      <div class="row" style="margin-top:7px">
+        <button class="warn" id="tcTest" disabled>테스트 사격</button>
+        <button class="ghost sm" id="tcTestClear" style="flex:0 1 30%">지우기</button>
+      </div>
+      <p class="note" id="tcReady"></p>
+      <p class="note" id="tcTestInfo"></p>
+      <details>
+        <summary>표적 규격 · 검출 파라미터</summary>
+        <div class="row" style="margin-top:6px">
+          <div style="flex:1 1 100%"><label class="fl">표적 프리셋</label>
+            <select id="tcPreset">
+              <option value="own300">샷라인 자체 표적 300mm</option>
+              <option value="lh4">LaserHIT 25M · 1:4 (A4 원본)</option>
+              <option value="lh3">LaserHIT 25M · 1:3 (A4 133%)</option>
+              <option value="lh2">LaserHIT 25M · 1:2 (A3 200%)</option>
+              <option value="issf25">ISSF 25m 원본 500mm</option>
+              <option value="custom">직접 입력</option>
+            </select></div>
+          <div style="flex:1 1 45%"><label class="fl">캘리브레이션 기준(mm)</label><input type="number" id="tcCalibMm" step="0.5"></div>
+          <div style="flex:1 1 45%"><label class="fl">채점 링 지름(mm)</label><input type="number" id="tcDia" step="0.5"></div>
+          <div style="flex:1 1 45%"><label class="fl">링 수</label><input type="number" id="tcRings" step="1"></div>
+          <div style="flex:1 1 45%"><label class="fl">회차당 발수</label><input type="number" id="tcPerRound" step="1"></div>
+          <div style="flex:1 1 45%"><label class="fl">적색 임계값</label><input type="number" id="tcRed" step="1"></div>
+          <div style="flex:1 1 45%"><label class="fl">밝기 임계값</label><input type="number" id="tcLum" step="1"></div>
+        </div>
+        <p class="note" id="tcQuality"></p>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>이번 수업 진행 현황</h2>
+      <div id="tcProgress"></div>
+    </div>
+
+    <div class="card">
+      <h2>집단 배정</h2>
+      <table><thead><tr><th>학급</th><th>집단</th><th class="n">기록</th><th>상태</th></tr></thead>
+        <tbody id="tcGroups"></tbody></table>
+      <p class="note">그 학급의 <b>1회차 데이터가 들어오면 자동으로 잠깁니다.</b>
+      잠긴 배정을 바꾸면 그 학급 데이터가 무효가 될 수 있습니다.</p>
+    </div>
+
+    <div class="card">
+      <h2>명부</h2>
+      <p class="note" style="margin-top:0">한 줄에 한 명씩, <code>학급,번호,별명,집단</code> 순으로 붙여넣으십시오.
+      집단은 <b>E</b>(실험) 또는 <b>C</b>(비교)이며, 비워두면 학급 배정을 따릅니다.</p>
+      <textarea id="tcRoster" placeholder="2-4,1,도윤,E
+2-4,2,서준,
+2-6,1,하늘,C"></textarea>
+      <div class="row" style="margin-top:9px">
+        <button id="tcRosterSave">명부 저장</button>
+        <button class="ghost" id="tcRosterDemo">예시 채우기</button>
+      </div>
+      <p class="note" id="tcRosterMsg"></p>
+    </div>
+
+    <div class="card">
+      <h2>데이터</h2>
+      <dl class="stats q4">
+        <div><dt>학생</dt><dd id="tcNStu">0</dd></div>
+        <div><dt>회차기록</dt><dd id="tcNRound">0</dd></div>
+        <div><dt>탄착</dt><dd id="tcNShot">0</dd></div>
+        <div><dt>저장공간</dt><dd id="tcSize" style="font-size:14px">–</dd></div>
+      </dl>
+      <div class="row" style="margin-top:9px">
+        <button id="tcCsvShot">탄착 CSV</button>
+        <button id="tcCsvRound">회차 CSV</button>
+      </div>
+      <div class="row" style="margin-top:7px">
+        <button class="ghost sm" id="tcBackup">전체 백업(JSON)</button>
+        <button class="ghost sm" id="tcRestore">백업 불러오기(합치기)</button>
+        <button class="danger sm" id="tcWipe">데이터 전체 삭제</button>
+      </div>
+      <input type="file" id="tcFile" accept=".json" style="display:none">
+      <p class="note"><b>매 수업이 끝나면 CSV를 내려받아 보관하십시오.</b>
+      브라우저 저장공간은 영구적이지 않습니다.</p>
+    </div>
+
+    <div class="card">
+      <h2>진단 로그</h2>
+      <div id="log"></div>
+      <div class="row" style="margin-top:9px">
+        <button class="ghost sm" id="tcPinChange">PIN 변경</button>
+        <button class="ghost sm" id="tcBack">학생 화면으로</button>
+      </div>
+    </div>
+  </div>
+</div></section>
+
 <script>
 "use strict";
 /* ==========================================================================
-   샷라인 검출 엔진 v1
+   샷라인 학생·교사 앱 v1
    --------------------------------------------------------------------------
-   구조
-     1. 수학       : 호모그래피(원근변환) 계산 / 역행렬
-     2. 카메라     : getUserMedia, 최대 해상도·프레임률 요청
-     3. 캘리브레이션: 돋보기 4점 지정
-     4. 배경 모델   : 채널별 평균·표준편차 학습
-     5. 검출       : 이중 경로(표적 ROI 원본해상 / 전체 축소) + 연결성분 + 서브픽셀 무게중심
-     6. 추적       : 시간 필터로 1발 확정, 여러 프레임 평균으로 정밀도 향상
-     7. 점수       : mm 좌표 → 정수 점수 + 소수점 점수
+   설계 원칙
+     · 집단은 '태블릿 설정'이 아니라 '학생 명부'에서 판정한다
+       → 교사가 학급을 잘못 고르거나 보강 학생이 와도 집단이 뒤바뀌지 않는다
+     · 카메라·캘리브레이션·배경은 앱 수준 상태로, 학생이 바뀌어도 유지된다
+     · 10발이 끝나면 자동 로그아웃해 다음 학생의 발이 앞 학생 기록에 섞이지 않게 한다
+     · 비교집단에는 코칭 탭을 렌더링하지 않는다 (회색 비활성화가 아니라 부재)
    ========================================================================== */
 
-/* ===================== 0. 전역 상태 ===================== */
-const S = {
-  stream:null, vw:0, vh:0,          // 영상 원본 해상도
-  quad:null,                        // 캘리브레이션 4점 (영상 원본 px) TL,TR,BR,BL
-  H:null, Hinv:null,                // mm→px, px→mm
-  roi:null,                         // 표적 ROI (원본 px, 정수)
-  bg:null,                          // ROI 배경 모델
-  bgWide:null,                      // 전체화면 배경 모델
-  mode:'idle',                      // idle | calib | bg | run | probe
-  running:false,
-  shots:[], tracks:[], nextId:1,
-  lastEmitAt:0, lastEmitPos:null,
-  frames:0, fpsT:0, fps:0, procMs:0,
-  mmPerPx:0, floodSince:0, floodWarnAt:0,
-  probe:{red:0,lum:0,bg:0,area:0}
+/* ===================== 저장 ===================== */
+const K={roster:'sl.roster',lock:'sl.lock',cfg:'sl.cfg',shots:'sl.shots',rounds:'sl.rounds',pin:'sl.pin'};
+function load(k,d){ try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;} }
+function save(k,v){ try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(e){
+  log('⚠ 저장 실패: '+e.message+' — 저장공간이 찼을 수 있습니다. CSV로 내보낸 뒤 정리하십시오.');return false;} }
+
+/* ===================== 설정 ===================== */
+const PRESETS={
+  own300:{mode:'square',calib:300,dia:300,rings:10},
+  lh4:{mode:'square',calib:null,dia:125,rings:10},
+  lh3:{mode:'square',calib:null,dia:166.7,rings:10},
+  lh2:{mode:'square',calib:null,dia:250,rings:10},
+  issf25:{mode:'ring',calib:500,dia:500,rings:10}
 };
+const CFG=Object.assign({
+  preset:'own300',mode:'square',calib:300,dia:300,rings:10,
+  perRound:10, red:22,lum:38,minA:4,maxA:900,minF:1,cool:300,
+  serverUrl:''
+}, load(K.cfg,{}));
+function saveCfg(){ save(K.cfg,CFG); }
 
-const WIDE_W = 480, WIDE_H = 270;   // 이탈 검출용 축소 해상도
-const BG_FRAMES = 60;               // 배경 학습 프레임 수
+/* 코칭 규칙 임계값은 '링 폭' 단위로 둔다.
+   설계기록의 규칙표는 300mm 표적(1링 15mm) 기준으로 쓰였으므로 링 단위로 환산해 두면
+   LaserHIT 1:4(1링 6.25mm)처럼 크기가 다른 표적에서도 같은 규칙이 성립한다. */
+const TH={ mpi:10/15, grpBig:40/15, grpOk:25/15 };
+const ringMm=()=> (CFG.dia/2)/CFG.rings;
 
-/* ===================== 1. 수학 ===================== */
+/* ===================== 로그 ===================== */
+const logEl=document.getElementById('log');
+function log(m){
+  const t=new Date(), p=n=>String(n).padStart(2,'0');
+  const line=`[${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())}] ${m}\n`;
+  if(logEl){ logEl.textContent=line+logEl.textContent;
+    if(logEl.textContent.length>5000) logEl.textContent=logEl.textContent.slice(0,5000); }
+}
 
-/* 8x8 선형계 풀이 (부분 피벗 가우스 소거) */
-function solve8(A, b){
-  const n = 8;
-  const M = A.map((row,i)=>row.concat([b[i]]));
+/* ===================== 수학 (호모그래피) ===================== */
+function solve8(A,b){
+  const n=8,M=A.map((r,i)=>r.concat([b[i]]));
   for(let c=0;c<n;c++){
-    let piv=c;
-    for(let r=c+1;r<n;r++) if(Math.abs(M[r][c])>Math.abs(M[piv][c])) piv=r;
-    if(Math.abs(M[piv][c])<1e-12) return null;      // 특이행렬 = 네 점이 일직선
-    if(piv!==c){ const t=M[piv]; M[piv]=M[c]; M[c]=t; }
-    const d=M[c][c];
-    for(let k=c;k<=n;k++) M[c][k]/=d;
-    for(let r=0;r<n;r++){
-      if(r===c) continue;
-      const f=M[r][c];
-      if(f===0) continue;
-      for(let k=c;k<=n;k++) M[r][k]-=f*M[c][k];
-    }
+    let pv=c; for(let r=c+1;r<n;r++) if(Math.abs(M[r][c])>Math.abs(M[pv][c])) pv=r;
+    if(Math.abs(M[pv][c])<1e-12) return null;
+    if(pv!==c){const t=M[pv];M[pv]=M[c];M[c]=t;}
+    const d=M[c][c]; for(let k=c;k<=n;k++) M[c][k]/=d;
+    for(let r=0;r<n;r++){ if(r===c) continue; const f=M[r][c]; if(!f) continue;
+      for(let k=c;k<=n;k++) M[r][k]-=f*M[c][k]; }
   }
   return M.map(r=>r[n]);
 }
-
-/* 대응점 4쌍으로 호모그래피 H(src→dst) 계산. 반환 [h11..h33] */
-function homography(src, dst){
-  const A=[], b=[];
-  for(let i=0;i<4;i++){
-    const {x,y}=src[i], {x:u,y:v}=dst[i];
+function homography(src,dst){
+  const A=[],b=[];
+  for(let i=0;i<4;i++){ const {x,y}=src[i],{x:u,y:v}=dst[i];
     A.push([x,y,1,0,0,0,-x*u,-y*u]); b.push(u);
-    A.push([0,0,0,x,y,1,-x*v,-y*v]); b.push(v);
-  }
-  const h=solve8(A,b);
-  if(!h) return null;
-  return [h[0],h[1],h[2], h[3],h[4],h[5], h[6],h[7],1];
+    A.push([0,0,0,x,y,1,-x*v,-y*v]); b.push(v); }
+  const h=solve8(A,b); return h?[h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7],1]:null;
 }
-
 function invert3(m){
   const [a,b,c,d,e,f,g,h,i]=m;
-  const A=e*i-f*h, B=-(d*i-f*g), C=d*h-e*g;
-  const det=a*A+b*B+c*C;
+  const A=e*i-f*h,B=-(d*i-f*g),C=d*h-e*g,det=a*A+b*B+c*C;
   if(Math.abs(det)<1e-14) return null;
-  const id=1/det;
-  return [
-    A*id, (c*h-b*i)*id, (b*f-c*e)*id,
-    B*id, (a*i-c*g)*id, (c*d-a*f)*id,
-    C*id, (b*g-a*h)*id, (a*e-b*d)*id
-  ];
+  const q=1/det;
+  return [A*q,(c*h-b*i)*q,(b*f-c*e)*q, B*q,(a*i-c*g)*q,(c*d-a*f)*q, C*q,(b*g-a*h)*q,(a*e-b*d)*q];
 }
+function applyH(m,x,y){ const w=m[6]*x+m[7]*y+m[8];
+  return {x:(m[0]*x+m[1]*y+m[2])/w, y:(m[3]*x+m[4]*y+m[5])/w}; }
 
-function applyH(m, x, y){
-  const w = m[6]*x + m[7]*y + m[8];
-  return { x:(m[0]*x+m[1]*y+m[2])/w, y:(m[3]*x+m[4]*y+m[5])/w };
-}
+/* ===================== 명부 ===================== */
+function blankRoster(){ return {classes:{},students:[]}; }
+let ROSTER=load(K.roster,blankRoster());
 
-/* ===================== 2. 설정 ===================== */
-/*  ★ 캘리브레이션 기준과 채점 기준은 별개입니다 ★
-    표적에 따라 '화면에서 정확히 찍을 수 있는 형상'과 '점수를 매기는 링'이 다릅니다.
-      · 샷라인 자체 표적 : 바깥 정사각 테두리 = 최외곽 링 지름  (둘이 같음)
-      · LaserHIT 표적    : 네 귀퉁이의 25M 마커 = 링과 무관한 별도 사각형
-    그래서 두 값을 따로 둡니다.
-      calib : 화면에서 찍을 형상의 실측 치수 (자로 재서 입력)
-      dia   : 최외곽(1점) 링의 바깥 지름                                        */
-const CFG = {
-  mode:'square', calib:300, dia:300, rings:10,
-  red:22, lum:38, minA:4, maxA:900, minF:1, cool:300, miss:true
-};
-const CFG_DEFAULT = JSON.parse(JSON.stringify(CFG));
-
-/* 표적 프리셋 — LaserHIT 표적은 ISSF 25m 정밀권총(원본 500mm)의 축소본입니다 */
-const PRESETS = {
-  own300 : {mode:'square', calib:300,   dia:300,   rings:10,
-            note:'앱의 [표적지 인쇄]로 만든 표적입니다. 바깥 정사각 테두리의 네 모서리를 찍으십시오. 테두리 한 변과 링 지름이 같습니다.'},
-  lh4    : {mode:'square', calib:null,  dia:125,   rings:10,
-            note:'LaserHIT 25M 표적을 A4에 100%로 인쇄한 경우입니다. 네 귀퉁이 <b>25M 마커의 바깥쪽 모서리</b>를 찍으십시오. ★ 마커 사이 실측 거리를 자로 재어 위 \'캘리브레이션 기준 치수\'에 입력해야 합니다.'},
-  lh3    : {mode:'square', calib:null,  dia:166.7, rings:10,
-            note:'LaserHIT 25M 표적을 A4에 133%로 확대 인쇄한 경우입니다. 마커 사이 거리를 실측해 입력하십시오.'},
-  lh2    : {mode:'square', calib:null,  dia:250,   rings:10,
-            note:'LaserHIT 25M 표적을 A3에 200%로 확대 인쇄한 경우입니다. 정밀도가 가장 좋습니다. 마커 사이 거리를 실측해 입력하십시오.'},
-  issf25 : {mode:'ring',   calib:500,   dia:500,   rings:10,
-            note:'ISSF 25m 정밀권총 원본 규격입니다. 최외곽 링 위의 12·3·6·9시 지점 네 곳을 찍으십시오.'},
-  custom : {note:'표적을 자로 재어 값을 직접 넣으십시오. <b>캘리브레이션 기준 치수</b>는 화면에서 찍을 네 점이 이루는 정사각형의 한 변(또는 링 지름)이고, <b>채점용 링 지름</b>은 1점 링의 바깥 지름입니다.'}
-};
-
-function applyPreset(key){
-  const p=PRESETS[key];
-  if(!p) return;
-  if(p.mode) CFG.mode=p.mode;
-  if(p.dia)  CFG.dia=p.dia;
-  if(p.rings)CFG.rings=p.rings;
-  if(p.calib!=null) CFG.calib=p.calib;
-  document.getElementById('presetNote').innerHTML=p.note;
-  applyCfgToUI();
-  if(S.quad) buildTransform();
-  evaluateQuality(); render();
-}
-
-function bindCfg(){
-  const num=[['cfgCalib','calib'],['cfgDia','dia'],['cfgRings','rings']];
-  num.forEach(([id,k])=>{
-    const el=document.getElementById(id);
-    el.value=CFG[k];
-    el.addEventListener('change',()=>{
-      const v=parseFloat(el.value);
-      if(isFinite(v)&&v>0){
-        CFG[k]=v;
-        document.getElementById('cfgPreset').value='custom';
-        if(S.quad) buildTransform();
-        evaluateQuality(); render();
-      }
-    });
+function parseRoster(text){
+  const cls={},stu=[];
+  text.split(/\r?\n/).forEach(line=>{
+    const t=line.trim(); if(!t||t.startsWith('#')) return;
+    const p=t.split(',').map(s=>s.trim());
+    if(p.length<2) return;
+    const c=p[0], num=parseInt(p[1],10);
+    if(!c||!isFinite(num)) return;
+    const nick=p[2]||String(num), g=(p[3]||'').toUpperCase();
+    if(!cls[c]) cls[c]={group:'',locked:false,assigned_at:''};
+    if(g==='E'||g==='C'){ if(!cls[c].group) cls[c].group=g; }
+    stu.push({cls:c,num,nick,ov:(g==='E'||g==='C')?g:''});
   });
-  const md=document.getElementById('cfgMode');
-  md.value=CFG.mode;
-  md.addEventListener('change',()=>{
-    CFG.mode=md.value;
-    document.getElementById('labCalib').textContent =
-      CFG.mode==='square' ? '찍을 정사각형의 한 변 (mm)' : '찍을 링의 지름 (mm)';
-    if(S.quad) buildTransform();
-    evaluateQuality(); render();
+  // 학급 집단이 비어 있으면 그 학급 학생 다수의 값으로 채운다
+  Object.keys(cls).forEach(c=>{
+    if(cls[c].group) return;
+    const gs=stu.filter(s=>s.cls===c&&s.ov).map(s=>s.ov);
+    cls[c].group=gs.length?gs[0]:'';
   });
-  const pr=document.getElementById('cfgPreset');
-  pr.addEventListener('change',()=>applyPreset(pr.value));
-  const rng=[['cfgRed','red','vRed'],['cfgLum','lum','vLum'],['cfgMinA','minA','vMinA'],
-             ['cfgMaxA','maxA','vMaxA'],['cfgMinF','minF','vMinF'],['cfgCool','cool','vCool']];
-  rng.forEach(([id,k,vid])=>{
-    const el=document.getElementById(id), lab=document.getElementById(vid);
-    el.value=CFG[k]; lab.textContent=CFG[k];
-    el.addEventListener('input',()=>{ CFG[k]=parseFloat(el.value); lab.textContent=el.value; });
+  return {classes:cls,students:stu};
+}
+/* ★ 집단 판정 — 반드시 학생 기준. 태블릿 설정을 신뢰하지 않는다. */
+function lookupStudent(cls,num){
+  const s=ROSTER.students.find(s=>s.cls===cls&&s.num===num);
+  if(!s) return null;
+  const g=s.ov || (ROSTER.classes[s.cls]&&ROSTER.classes[s.cls].group) || '';
+  return {cls:s.cls,num:s.num,nick:s.nick,group:g,code:`${g||'X'}-${s.cls}-${String(s.num).padStart(2,'0')}`};
+}
+function findAnywhere(num){ return ROSTER.students.filter(s=>s.num===num); }
+
+/* ===================== 데이터 ===================== */
+let SHOTS=load(K.shots,[]);     // 1발 = 1행
+let ROUNDS=load(K.rounds,[]);   // 1회차 = 1행
+
+function classHasSession1(cls){ return ROUNDS.some(r=>r.cls===cls&&r.session===1); }
+function refreshLocks(){
+  let ch=false;
+  Object.keys(ROSTER.classes).forEach(c=>{
+    if(!ROSTER.classes[c].locked && classHasSession1(c)){
+      ROSTER.classes[c].locked=true;
+      if(!ROSTER.classes[c].assigned_at) ROSTER.classes[c].assigned_at=new Date().toISOString();
+      ch=true; log(`${c} 집단 배정이 잠겼습니다 (1회차 데이터 유입).`);
+    }
   });
-  const mc=document.getElementById('cfgMiss');
-  mc.checked=CFG.miss;
-  mc.addEventListener('change',()=>{ CFG.miss=mc.checked; });
-}
-function applyCfgToUI(){
-  document.getElementById('cfgCalib').value=CFG.calib;
-  document.getElementById('cfgDia').value=CFG.dia;
-  document.getElementById('cfgRings').value=CFG.rings;
-  document.getElementById('cfgMode').value=CFG.mode;
-  document.getElementById('labCalib').textContent =
-    CFG.mode==='square' ? '찍을 정사각형의 한 변 (mm)' : '찍을 링의 지름 (mm)';
-  [['cfgRed','red','vRed'],['cfgLum','lum','vLum'],['cfgMinA','minA','vMinA'],
-   ['cfgMaxA','maxA','vMaxA'],['cfgMinF','minF','vMinF'],['cfgCool','cool','vCool']]
-   .forEach(([id,k,vid])=>{
-     document.getElementById(id).value=CFG[k];
-     document.getElementById(vid).textContent=CFG[k];
-   });
-  document.getElementById('cfgMiss').checked=CFG.miss;
-}
-function saveCfg(){
-  try{ localStorage.setItem('shotline.cfg', JSON.stringify(CFG)); log('설정을 저장했습니다.'); }
-  catch(e){ log('설정 저장 실패: '+e.message); }
-}
-function loadCfg(){
-  try{
-    const s=localStorage.getItem('shotline.cfg');
-    if(s) Object.assign(CFG, JSON.parse(s));
-  }catch(e){}
+  if(ch) save(K.roster,ROSTER);
 }
 
-/* ===================== 3. 로그 ===================== */
-const logEl=document.getElementById('log');
-function log(msg){
-  const t=new Date();
-  const hh=String(t.getHours()).padStart(2,'0');
-  const mm=String(t.getMinutes()).padStart(2,'0');
-  const ss=String(t.getSeconds()).padStart(2,'0');
-  logEl.textContent = `[${hh}:${mm}:${ss}] ${msg}\n` + logEl.textContent;
-  if(logEl.textContent.length>6000) logEl.textContent=logEl.textContent.slice(0,6000);
+/* ===================== 카메라 · 검출 엔진 ===================== */
+const HR_MIN=12, ABS_GATE=7, REF_ABS=55, REF_BG=30;
+function norm(d,bg){ const h=255-bg>HR_MIN?255-bg:HR_MIN; const a=d/h,b=d/REF_ABS; return a>b?a:b; }
+const buf={w:null,l:null,lb:null,st:null,n:0};
+function ensure(n){
+  if(buf.n<n){ buf.w=new Float32Array(n);buf.l=new Float32Array(n);
+    buf.lb=new Int32Array(n);buf.st=new Int32Array(n);buf.n=n; }
+}
+function detect(img,bg,w,h,thRed,thLum,minA,maxA){
+  const n=w*h,d=img.data;
+  if(!bg||!bg.mR||bg.mR.length<n) return {blobs:[],stats:{maxRed:0,maxLum:0,flood:false}};
+  ensure(n);
+  const wgt=buf.w,lum=buf.l,lab=buf.lb,st=buf.st;
+  let any=false,maxRed=0,maxLum=0,sumRed=0,sumLum=0;
+  for(let i=0,p=0;i<n;i++,p+=4){
+    const bR=bg.mR[i],bG=bg.mG[i],bB=bg.mB[i];
+    const dR=d[p]-bR,dG=d[p+1]-bG,dB=d[p+2]-bB;
+    if(dR<ABS_GATE&&dG<ABS_GATE&&dB<ABS_GATE){ wgt[i]=0;lum[i]=0;lab[i]=0;continue; }
+    const yd=0.30*dR+0.59*dG+0.11*dB, yb=0.30*bR+0.59*bG+0.11*bB;
+    lum[i]= yd>0 ? yd/(yb>REF_BG?yb:REF_BG) : 0;   // 반사율 보정 (링 선 편향 제거)
+    const nR=norm(dR,bR),nG=norm(dG,bG),nB=norm(dB,bB);
+    const mRed=100*(nR-0.5*(nG+nB)), mLum=100*(0.4*nR+0.4*nG+0.2*nB);
+    if(mRed>maxRed)maxRed=mRed; if(mLum>maxLum)maxLum=mLum;
+    if(mRed>0)sumRed+=mRed; if(mLum>0)sumLum+=mLum;
+    const exc=Math.max(mRed/thRed,mLum/thLum), v=exc>1?exc:0;
+    wgt[i]=v; lab[i]=v>0?-1:0; if(v>0)any=true;
+  }
+  const stats={maxRed,maxLum,flood:false};
+  if(sumLum/n>8||sumRed/n>8){ stats.flood=true; return {blobs:[],stats}; }
+  if(!any) return {blobs:[],stats};
+  const blobs=[],GATE=1.25;
+  for(let i0=0;i0<n;i0++){
+    if(lab[i0]!==-1) continue;
+    let sp=0; st[sp++]=i0; lab[i0]=1;
+    let area=0,sw=0,sx=0,sy=0,peak=0,mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9;
+    while(sp>0){
+      const i=st[--sp],x=i%w,y=(i-x)/w,v=wgt[i],lv=lum[i]>0?lum[i]:0.001;
+      area++; sw+=lv; sx+=lv*x; sy+=lv*y; if(v>peak)peak=v;
+      if(x<mnx)mnx=x; if(x>mxx)mxx=x; if(y<mny)mny=y; if(y>mxy)mxy=y;
+      if(x>0&&lab[i-1]===-1){lab[i-1]=1;st[sp++]=i-1;}
+      if(x<w-1&&lab[i+1]===-1){lab[i+1]=1;st[sp++]=i+1;}
+      if(y>0&&lab[i-w]===-1){lab[i-w]=1;st[sp++]=i-w;}
+      if(y<h-1&&lab[i+w]===-1){lab[i+w]=1;st[sp++]=i+w;}
+    }
+    if(area<minA||area>maxA) continue;
+    if(peak<GATE) continue;
+    const bw=mxx-mnx+1,bh=mxy-mny+1;
+    if(Math.max(bw,bh)/Math.max(1,Math.min(bw,bh))>4) continue;
+    if(area/(bw*bh)<0.25) continue;
+    if(sw<=0) continue;
+    blobs.push({x:sx/sw+0.5,y:sy/sw+0.5,area,peak,weight:sw});
+  }
+  blobs.sort((a,b)=>b.weight-a.weight);
+  return {blobs:blobs.slice(0,8),stats};
 }
 
-/* ===================== 4. 카메라 ===================== */
+const E={ stream:null,vw:0,vh:0,quad:null,H:null,Hinv:null,roi:null,bg:null,
+  mmPerPx:0,mode:'idle',running:false,tracks:[],lastEmit:0,lastPos:null,
+  bgCount:0,fps:0,frames:0,fpsT:0,floodSince:0,floodWarn:0 };
+const BG_FRAMES=60;
+
 const video=document.getElementById('video');
 const overlay=document.getElementById('overlay');
 const octx=overlay.getContext('2d');
 const stage=document.getElementById('stage');
 const badge=document.getElementById('badge');
 const hintEl=document.getElementById('hint');
+const roiCv=document.createElement('canvas'), roiCtx=roiCv.getContext('2d',{willReadFrequently:true});
 
 async function startCamera(){
-  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-    alert('이 브라우저는 카메라를 지원하지 않습니다.\nHTTPS 주소로 접속했는지 확인하십시오.');
-    return;
-  }
-  // 60fps를 우선 요청 — 짧은 펄스 누락 방지에 결정적
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    alert('카메라를 쓸 수 없습니다. https 주소로 접속했는지 확인하십시오.'); return; }
   const tries=[
     {video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:60}}},
-    {video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}}},
+    {video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}},
     {video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}},
-    {video:{facingMode:{ideal:'environment'}}},
-    {video:true}
-  ];
+    {video:{facingMode:{ideal:'environment'}}},{video:true}];
   let err=null;
-  for(const c of tries){
-    try{
-      S.stream=await navigator.mediaDevices.getUserMedia(c);
-      break;
-    }catch(e){ err=e; }
-  }
-  if(!S.stream){
-    alert('카메라를 열 수 없습니다: '+(err?err.message:'알 수 없는 오류')+
-          '\n\n· HTTPS 주소인지\n· 카메라 권한을 허용했는지\n확인하십시오.');
-    return;
-  }
-  video.srcObject=S.stream;
-  await video.play();
-  await new Promise(r=>{
-    if(video.videoWidth) return r();
-    video.addEventListener('loadedmetadata', r, {once:true});
-  });
-  S.vw=video.videoWidth; S.vh=video.videoHeight;
-
-  const tr=S.stream.getVideoTracks()[0];
-  const st=tr.getSettings ? tr.getSettings() : {};
-  log(`카메라 시작: ${S.vw}×${S.vh} @ ${st.frameRate?Math.round(st.frameRate):'?'}fps`);
-  document.getElementById('mRes').textContent=`${S.vw}×${S.vh}`;
-
-  // 지원되는 제약 확인 (zoom 등)
-  try{
-    const sup=navigator.mediaDevices.getSupportedConstraints();
-    const has=['zoom','exposureMode','exposureTime','focusMode','torch'].filter(k=>sup[k]);
-    log('지원 제약: '+(has.length?has.join(', '):'없음 (표준 항목만)'));
-  }catch(e){}
-
-  if(st.frameRate && st.frameRate < 50){
-    log('⚠ 30fps입니다. 아두이노 펄스를 120ms 이상으로 설정하십시오.');
-  }
-
+  for(const c of tries){ try{ E.stream=await navigator.mediaDevices.getUserMedia(c); break; }catch(e){ err=e; } }
+  if(!E.stream){ alert('카메라를 열 수 없습니다: '+(err?err.message:'')); return; }
+  video.srcObject=E.stream; await video.play();
+  await new Promise(r=>{ if(video.videoWidth) return r();
+    video.addEventListener('loadedmetadata',r,{once:true}); });
+  E.vw=video.videoWidth; E.vh=video.videoHeight;
+  const st=(E.stream.getVideoTracks()[0].getSettings&&E.stream.getVideoTracks()[0].getSettings())||{};
+  log(`카메라 ${E.vw}×${E.vh} @ ${st.frameRate?Math.round(st.frameRate):'?'}fps`);
+  if(st.frameRate&&st.frameRate<50) log('⚠ 30fps입니다. 아두이노 펄스를 120ms 이상으로 두십시오.');
   resizeOverlay();
-  document.getElementById('bCalib').disabled=false;
-  document.getElementById('bStart').textContent='카메라 재시작';
-  badge.textContent='표적을 화면에 담고\n[표적 맞추기]를 누르십시오';
-  startLoop();
+  document.getElementById('tcCalib').disabled=false;
+  // 저장된 캘리브레이션 복원
+  const q=load('sl.quad',null);
+  if(q&&q.vw===E.vw&&q.vh===E.vh){ E.quad=q.quad; if(buildTransform()) log('저장된 표적 위치를 복원했습니다. 배경 학습만 하십시오.'); }
+  badge.textContent=E.quad?'표적 위치 복원됨\n[배경 학습]을 누르십시오':'[표적 맞추기]를 누르십시오';
+  startLoop(); keepAwake(); updReady();
 }
-
+/* ★ 미리보기 이동 ★
+   영상 블록은 문서에서 제거되지 않고 부모만 바뀌므로 스트림이 끊기지 않습니다.
+   교사가 표적을 맞출 때는 교사 화면에, 학생이 사격할 때는 학생 화면에 붙입니다. */
+function moveStage(where){
+  const host=document.getElementById(where==='T'?'stageHostT':'stageHostS');
+  if(host && stage.parentNode!==host){ host.appendChild(stage); }
+  setTimeout(resizeOverlay,30);
+}
 function resizeOverlay(){
-  const r=video.getBoundingClientRect();
-  if(r.width<2) return;
-  const dpr=Math.min(window.devicePixelRatio||1, 2);
-  overlay.width=Math.round(r.width*dpr);
-  overlay.height=Math.round(r.height*dpr);
-  overlay.style.width=r.width+'px';
-  overlay.style.height=r.height+'px';
+  const r=video.getBoundingClientRect(); if(r.width<2) return;
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  overlay.width=Math.round(r.width*dpr); overlay.height=Math.round(r.height*dpr);
+  overlay.style.width=r.width+'px'; overlay.style.height=r.height+'px';
   octx.setTransform(dpr,0,0,dpr,0,0);
 }
-window.addEventListener('resize', ()=>{ resizeOverlay(); });
-window.addEventListener('orientationchange', ()=>setTimeout(resizeOverlay,400));
-
-/* 화면 꺼짐 방지 */
+window.addEventListener('resize',resizeOverlay);
+window.addEventListener('orientationchange',()=>setTimeout(resizeOverlay,400));
 let wakeLock=null;
-async function keepAwake(){
-  try{
-    if('wakeLock' in navigator){
-      wakeLock=await navigator.wakeLock.request('screen');
-      log('화면 꺼짐 방지 활성화');
-    }
-  }catch(e){}
-}
-document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible' && S.running) keepAwake();
-});
+async function keepAwake(){ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&E.running) keepAwake(); });
 
-/* 영상 좌표 ↔ 화면 좌표 */
-function dispScale(){
-  const r=video.getBoundingClientRect();
-  return { s: r.width/S.vw, r };
-}
-function evToVideo(ev){
-  const {s,r}=dispScale();
-  return { x:(ev.clientX-r.left)/s, y:(ev.clientY-r.top)/s };
-}
+function dispScale(){ const r=video.getBoundingClientRect(); return {s:r.width/E.vw,r}; }
+function evToVideo(ev){ const {s,r}=dispScale(); return {x:(ev.clientX-r.left)/s,y:(ev.clientY-r.top)/s}; }
 
-/* ===================== 5. 캘리브레이션 (돋보기) ===================== */
-const NAMES_SQ  =['왼쪽 위','오른쪽 위','오른쪽 아래','왼쪽 아래'];
-const NAMES_RING=['12시 (맨 위)','3시 (오른쪽)','6시 (맨 아래)','9시 (왼쪽)'];
-function cornerNames(){ return CFG.mode==='ring'?NAMES_RING:NAMES_SQ; }
-function calibTargetWord(){ return CFG.mode==='ring'?'최외곽 링 위의':'표적 정사각형의'; }
-let calibPts=[], calibIdx=0, dragging=false;
-const loupe=document.getElementById('loupe');
-const loupeC=document.getElementById('loupeC');
-const lctx=loupeC.getContext('2d');
-const LOUPE_SRC=48;   // 원본에서 잘라올 영역 (px) → 180px에 그리므로 약 3.75배
-
-/*  ★ 미세 조정(FINE_GAIN) ★
-    ------------------------------------------------------------------
-    돋보기는 '정확히 보게' 해줄 뿐, '정확히 놓게' 해주지는 못합니다.
-    사용자는 화면 픽셀 단위로만 손가락을 놓을 수 있는데,
-    영상 1920px가 화면에서 600px로 줄어 표시되면 화면 1px = 영상 3.2px이라
-    아무리 잘 찍어도 영상 기준 ±1.6px(약 ±1.9mm)의 오차가 생깁니다.
-
-    그래서 손가락을 누른 뒤 움직이는 거리를 4분의 1로 줄여 반영합니다.
-    손가락을 20px 끌면 점은 5px만 움직이므로, 화면 해상도의 한계를 넘어
-    영상 기준 ±0.4px 수준으로 놓을 수 있습니다.
-    (아이폰 텍스트 커서를 옮길 때 쓰는 방식과 같은 원리입니다)               */
-const FINE_GAIN=0.25;
-let anchorPt=null, candPt=null;
+/* ---------- 캘리브레이션 (돋보기 + 미세조정) ---------- */
+const NAMES_SQ=['왼쪽 위','오른쪽 위','오른쪽 아래','왼쪽 아래'];
+const NAMES_RG=['12시 (맨 위)','3시 (오른쪽)','6시 (맨 아래)','9시 (왼쪽)'];
+const cnames=()=>CFG.mode==='ring'?NAMES_RG:NAMES_SQ;
+const LOUPE_SRC=48, FINE_GAIN=0.25;
+let calibPts=[],calibIdx=0,dragging=false,anchorPt=null,candPt=null;
+const loupe=document.getElementById('loupe'),lctx=document.getElementById('loupeC').getContext('2d');
 
 function beginCalib(){
-  calibPts=[]; calibIdx=0;
-  S.mode='calib'; S.quad=null; S.H=null; S.roi=null; S.bg=null; S.bgWide=null;
-  stage.classList.add('calib');
-  document.getElementById('bBg').disabled=true;
-  document.getElementById('bRun').disabled=true;
-  showHint(`${calibTargetWord()} <b>${cornerNames()[0]}</b> 지점을 누르십시오${loupeHintText()}`);
-  log(`캘리브레이션 시작 — ${CFG.mode==='ring'?'링 위 12·3·6·9시':'네 모서리를 시계방향으로'} 지정하십시오.`);
+  if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
+  calibPts=[];calibIdx=0;E.mode='calib';E.quad=null;E.H=null;E.roi=null;E.bg=null;
+  document.getElementById('tcBg').disabled=true;
+  badge.textContent='표적 네 모서리를 지정하십시오';
+  showHint(`${CFG.mode==='ring'?'최외곽 링 위의':'표적 정사각형의'} <b>${cnames()[0]}</b> 지점을 누르십시오<em>손가락을 <b>댄 채로 조금씩 끌어</b> 맞추십시오</em>`);
+  log('캘리브레이션 시작');
+  updReady();
 }
-function showHint(html){ hintEl.innerHTML=html; hintEl.style.display='block'; }
+function showHint(h){ hintEl.innerHTML=h; hintEl.style.display='block'; }
 function hideHint(){ hintEl.style.display='none'; }
-
-function drawLoupe(p, ev){
+function drawLoupe(p,ev){
   const half=LOUPE_SRC/2;
-  let sx=p.x-half, sy=p.y-half;
-  sx=Math.max(0,Math.min(S.vw-LOUPE_SRC,sx));
-  sy=Math.max(0,Math.min(S.vh-LOUPE_SRC,sy));
+  let sx=Math.max(0,Math.min(E.vw-LOUPE_SRC,p.x-half)), sy=Math.max(0,Math.min(E.vh-LOUPE_SRC,p.y-half));
   lctx.imageSmoothingEnabled=false;
-  lctx.drawImage(video, sx,sy,LOUPE_SRC,LOUPE_SRC, 0,0,180,180);
-  // 실제 포인터 위치가 중앙에서 벗어난 경우 보정 표시
-  const {s,r}=dispScale();
+  lctx.drawImage(video,sx,sy,LOUPE_SRC,LOUPE_SRC,0,0,180,180);
+  const {r}=dispScale();
   let lx=(ev.clientX-r.left)-90, ly=(ev.clientY-r.top)-200;
   if(ly<4) ly=(ev.clientY-r.top)+30;
-  lx=Math.max(2,Math.min(r.width-182,lx));
-  loupe.style.left=lx+'px';
-  loupe.style.top=ly+'px';
-  loupe.style.display='block';
+  loupe.style.left=Math.max(2,Math.min(r.width-182,lx))+'px';
+  loupe.style.top=ly+'px'; loupe.style.display='block';
 }
-
-overlay.addEventListener('pointerdown',ev=>{
-  if(S.mode!=='calib') return;
-  ev.preventDefault();
-  overlay.setPointerCapture(ev.pointerId);
-  dragging=true;
-  anchorPt=evToVideo(ev);
-  candPt={x:anchorPt.x, y:anchorPt.y};
-  drawLoupe(candPt, ev);
-});
-overlay.addEventListener('pointermove',ev=>{
-  if(S.mode!=='calib'||!dragging) return;
-  ev.preventDefault();
-  const cur=evToVideo(ev);
-  // 손가락 이동량의 1/4만 반영해 화면 해상도보다 정밀하게 놓는다
-  candPt={ x:anchorPt.x+(cur.x-anchorPt.x)*FINE_GAIN,
-           y:anchorPt.y+(cur.y-anchorPt.y)*FINE_GAIN };
-  drawLoupe(candPt, ev);
-});
-overlay.addEventListener('pointerup',ev=>{
-  if(S.mode!=='calib'||!dragging) return;
-  ev.preventDefault();
-  dragging=false;
-  loupe.style.display='none';
-  const p={x:candPt.x, y:candPt.y};
-  p.x=Math.max(0,Math.min(S.vw,p.x));
-  p.y=Math.max(0,Math.min(S.vh,p.y));
-  calibPts.push(p);
-  log(`기준점 ${calibIdx+1}(${cornerNames()[calibIdx]}) = (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+overlay.addEventListener('pointerdown',ev=>{ if(E.mode!=='calib')return; ev.preventDefault();
+  overlay.setPointerCapture(ev.pointerId); dragging=true;
+  anchorPt=evToVideo(ev); candPt={x:anchorPt.x,y:anchorPt.y}; drawLoupe(candPt,ev); });
+overlay.addEventListener('pointermove',ev=>{ if(E.mode!=='calib'||!dragging)return; ev.preventDefault();
+  const c=evToVideo(ev);
+  candPt={x:anchorPt.x+(c.x-anchorPt.x)*FINE_GAIN, y:anchorPt.y+(c.y-anchorPt.y)*FINE_GAIN};
+  drawLoupe(candPt,ev); });
+overlay.addEventListener('pointerup',ev=>{ if(E.mode!=='calib'||!dragging)return; ev.preventDefault();
+  dragging=false; loupe.style.display='none';
+  calibPts.push({x:Math.max(0,Math.min(E.vw,candPt.x)),y:Math.max(0,Math.min(E.vh,candPt.y))});
   calibIdx++;
-  if(calibIdx<4){
-    showHint(`${calibTargetWord()} <b>${cornerNames()[calibIdx]}</b> 지점을 누르십시오 <span style="opacity:.7">(${calibIdx+1}/4)</span>`);
-  }else{
-    finishCalib();
-  }
-});
+  if(calibIdx<4) showHint(`${CFG.mode==='ring'?'최외곽 링 위의':'표적 정사각형의'} <b>${cnames()[calibIdx]}</b> 지점을 누르십시오 <span style="opacity:.7">(${calibIdx+1}/4)</span>`);
+  else finishCalib(); });
 overlay.addEventListener('pointercancel',()=>{ dragging=false; loupe.style.display='none'; });
 
-/* 돋보기 안에 십자선 기준 위치를 그린다 (손가락 위치가 아니라 실제 확정될 지점) */
-function loupeHintText(){
-  return '<em>손가락을 <b>댄 채로 조금씩 끌어</b> 맞추십시오</em>';
-}
-
 function finishCalib(){
-  S.quad=calibPts.slice();
-  stage.classList.remove('calib');
-  hideHint();
-  if(!buildTransform()){
-    alert('네 점으로 표적면을 계산할 수 없습니다.\n모서리가 일직선에 가깝지 않은지 확인하고 다시 시도하십시오.');
-    S.quad=null; S.mode='idle';
-    return;
-  }
-  S.mode='idle';
-  document.getElementById('bBg').disabled=false;
-  document.getElementById('bProbe').disabled=false;
+  E.quad=calibPts.slice(); hideHint();
+  if(!buildTransform()){ alert('네 점으로 표적면을 계산할 수 없습니다. 다시 시도하십시오.');
+    E.quad=null;E.mode='idle';return; }
+  E.mode='idle';
+  save('sl.quad',{vw:E.vw,vh:E.vh,quad:E.quad});
+  document.getElementById('tcBg').disabled=false;
   badge.textContent='표적 인식 완료\n[배경 학습]을 누르십시오';
-  log(`표적 인식 완료 — ROI ${S.roi.w}×${S.roi.h}px, 정밀도 ${S.mmPerPx.toFixed(3)} mm/px`);
-  evaluateQuality();
+  log(`표적 인식 완료 · ${E.mmPerPx.toFixed(3)} mm/px`);
+  updReady();
 }
-
-/* 호모그래피와 ROI 계산 */
 function buildTransform(){
   const c=CFG.calib/2;
-  /* 표적 평면 좌표: x 오른쪽 +, y 위쪽 +  (mm, 중심 원점)
-     square 모드 : 왼위 → 오른위 → 오른아래 → 왼아래
-     ring   모드 : 12시 → 3시 → 6시 → 9시   (링 위 네 점) */
-  const src = CFG.mode==='ring'
-    ? [{x:0,y:c},{x:c,y:0},{x:0,y:-c},{x:-c,y:0}]
-    : [{x:-c,y:c},{x:c,y:c},{x:c,y:-c},{x:-c,y:-c}];
-  S.H=homography(src, S.quad);
-  if(!S.H) return false;
-  S.Hinv=invert3(S.H);
-  if(!S.Hinv) return false;
-
-  /* ROI = 찍은 네 점 + 채점 링 전체를 모두 감싸는 축정렬 경계 + 여백.
-     LaserHIT 표적처럼 마커 사각형이 링보다 작을 수도, 클 수도 있으므로 둘 다 포함시킵니다. */
-  const pts=S.quad.slice();
-  const R=CFG.dia/2;
-  for(let a=0;a<24;a++){
-    const th=a/24*Math.PI*2;
-    pts.push(applyH(S.H, Math.cos(th)*R, Math.sin(th)*R));
-  }
-  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y);
-  const pad=Math.max(10, (Math.max(...xs)-Math.min(...xs))*0.07);
-  let x0=Math.floor(Math.min(...xs)-pad), y0=Math.floor(Math.min(...ys)-pad);
-  let x1=Math.ceil(Math.max(...xs)+pad),  y1=Math.ceil(Math.max(...ys)+pad);
-  x0=Math.max(0,x0); y0=Math.max(0,y0);
-  x1=Math.min(S.vw,x1); y1=Math.min(S.vh,y1);
-  S.roi={x:x0,y:y0,w:x1-x0,h:y1-y0};
-
-  // mm/px : 표적 중심에서 1px 이동했을 때의 mm 변화
-  const ctr=applyH(S.H,0,0);
-  const a=applyH(S.Hinv,ctr.x,ctr.y), b2=applyH(S.Hinv,ctr.x+1,ctr.y);
-  S.mmPerPx=Math.hypot(b2.x-a.x, b2.y-a.y);
-  document.getElementById('mMmpx').textContent=S.mmPerPx.toFixed(2)+' mm/px';
-
-  S.bg=null; S.bgWide=null;
-  return true;
+  const src=CFG.mode==='ring'?[{x:0,y:c},{x:c,y:0},{x:0,y:-c},{x:-c,y:0}]
+                             :[{x:-c,y:c},{x:c,y:c},{x:c,y:-c},{x:-c,y:-c}];
+  E.H=homography(src,E.quad); if(!E.H) return false;
+  E.Hinv=invert3(E.H); if(!E.Hinv) return false;
+  const pts=E.quad.slice(),R=CFG.dia/2;
+  for(let a=0;a<24;a++){ const t=a/24*Math.PI*2; pts.push(applyH(E.H,Math.cos(t)*R,Math.sin(t)*R)); }
+  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
+  const pad=Math.max(10,(Math.max(...xs)-Math.min(...xs))*0.07);
+  const x0=Math.max(0,Math.floor(Math.min(...xs)-pad)),y0=Math.max(0,Math.floor(Math.min(...ys)-pad));
+  const x1=Math.min(E.vw,Math.ceil(Math.max(...xs)+pad)),y1=Math.min(E.vh,Math.ceil(Math.max(...ys)+pad));
+  E.roi={x:x0,y:y0,w:x1-x0,h:y1-y0};
+  const ctr=applyH(E.H,0,0),a1=applyH(E.Hinv,ctr.x,ctr.y),b1=applyH(E.Hinv,ctr.x+1,ctr.y);
+  E.mmPerPx=Math.hypot(b1.x-a1.x,b1.y-a1.y);
+  E.bg=null; return true;
 }
-
-/* 품질 평가 */
-function evaluateQuality(){
-  const el=document.getElementById('qualityNote');
-  if(!S.quad){ el.textContent=''; return; }
-  const ringMm=(CFG.dia/2)/CFG.rings;
-  const ringPx=ringMm/S.mmPerPx;
-  const centroidErr=0.3*S.mmPerPx;
-  // 실제 탭 정밀도는 '화면에 표시된 배율'에 좌우됩니다.
-  // 화면 1px이 영상 몇 px인지 구하고, 미세조정 배율을 곱해 유효 오차를 냅니다.
-  const dispPx = (video.getBoundingClientRect().width||1);
-  const vpc = S.vw/dispPx;                    // 화면 1px = 영상 vpc px
-  const calibErr = Math.max(0.35, 0.5*vpc*FINE_GAIN) * S.mmPerPx;
-  const total=Math.hypot(centroidErr, calibErr);
-  const ratio=total/ringMm;
-  let tag,txt;
-  if(ratio<0.10){ tag='<span class="tag ok">우수</span>'; txt='논문 측정도구로 충분한 정밀도입니다.'; }
-  else if(ratio<0.25){ tag='<span class="tag mid">양호</span>'; txt='사용 가능하나, 태블릿을 조금 더 가까이 두거나 표적을 확대 인쇄하면 개선됩니다.'; }
-  else { tag='<span class="tag bad">부족</span>'; txt='태블릿을 표적에 더 가까이 두거나 표적을 크게 인쇄하십시오.'; }
-  el.innerHTML=`${tag} 1링 = ${ringMm.toFixed(1)}mm (${ringPx.toFixed(1)}px) · `+
-    `예상 좌표오차 ±${total.toFixed(2)}mm (${ratio.toFixed(2)}링) — ${txt}`;
-}
-
-/* ===================== 6. 처리용 캔버스 ===================== */
-const roiCv=document.createElement('canvas');
-const roiCtx=roiCv.getContext('2d',{willReadFrequently:true});
-const wideCv=document.createElement('canvas');
-wideCv.width=WIDE_W; wideCv.height=WIDE_H;
-const wideCtx=wideCv.getContext('2d',{willReadFrequently:true});
-
 function grabROI(){
-  const r=S.roi;
+  const r=E.roi;
   if(roiCv.width!==r.w||roiCv.height!==r.h){ roiCv.width=r.w; roiCv.height=r.h; }
-  roiCtx.drawImage(video, r.x,r.y,r.w,r.h, 0,0,r.w,r.h);
+  roiCtx.drawImage(video,r.x,r.y,r.w,r.h,0,0,r.w,r.h);
   return roiCtx.getImageData(0,0,r.w,r.h);
 }
-function grabWide(){
-  wideCtx.drawImage(video, 0,0,S.vw,S.vh, 0,0,WIDE_W,WIDE_H);
-  return wideCtx.getImageData(0,0,WIDE_W,WIDE_H);
-}
-
-/* ===================== 7. 배경 모델 ===================== */
-function newBg(n){
-  return { n:0, N:n, sumR:new Float32Array(n), sumG:new Float32Array(n), sumB:new Float32Array(n),
-           mR:null,mG:null,mB:null, ready:false };
-}
-function accBg(bg, img){
-  const d=img.data, n=bg.N;
-  for(let i=0,p=0;i<n;i++,p+=4){
-    bg.sumR[i]+=d[p]; bg.sumG[i]+=d[p+1]; bg.sumB[i]+=d[p+2];
-  }
-  bg.n++;
-}
-function finishBg(bg){
-  const n=bg.N, k=1/bg.n;
-  bg.mR=new Float32Array(n); bg.mG=new Float32Array(n); bg.mB=new Float32Array(n);
-  for(let i=0;i<n;i++){
-    bg.mR[i]=bg.sumR[i]*k; bg.mG[i]=bg.sumG[i]*k; bg.mB[i]=bg.sumB[i]*k;
-  }
-  bg.sumR=bg.sumG=bg.sumB=null;
-  bg.ready=true;
-}
-/* 검출되지 않은 프레임에서 배경을 아주 천천히 갱신 (조명 변화 대응) */
-function driftBg(bg, img, alpha){
-  const d=img.data, n=bg.N, a=alpha, ia=1-alpha;
-  for(let i=0,p=0;i<n;i++,p+=4){
-    bg.mR[i]=bg.mR[i]*ia+d[p]*a;
-    bg.mG[i]=bg.mG[i]*ia+d[p+1]*a;
-    bg.mB[i]=bg.mB[i]*ia+d[p+2]*a;
-  }
-}
-
-let bgCount=0, bgTargetWide=null;
-function beginBgLearn(){
-  if(!S.roi){ return; }
-  S.bg=newBg(S.roi.w*S.roi.h);
-  S.bgWide=newBg(WIDE_W*WIDE_H);
-  bgCount=0;
-  S.mode='bg';
+function beginBg(){
+  if(!E.roi){ alert('먼저 표적을 맞추십시오.'); return; }
+  const n=E.roi.w*E.roi.h;
+  E.bg={n,sR:new Float32Array(n),sG:new Float32Array(n),sB:new Float32Array(n),
+        mR:null,mG:null,mB:null,ready:false,cnt:0};
+  E.bgCount=0; E.mode='bg';
   badge.textContent='배경 학습 중…\n표적 앞을 비워 주십시오';
-  log('배경 학습 시작 (' + BG_FRAMES + '프레임)');
+  log('배경 학습 시작');
 }
-
-/* ===================== 8. 검출 ===================== */
-/*  ★ 헤드룸 정규화 지표 ★
-    ------------------------------------------------------------------
-    단순히 (현재 - 배경)을 쓰면 밝은 흰 종이에서 실패합니다.
-    배경이 이미 232라면 레이저가 아무리 밝아도 255까지 23밖에 못 올라가고,
-    적·녹·청이 함께 포화되어 '붉은 기운'이 0이 되어 버리기 때문입니다.
-
-    그래서 각 채널이 '남은 여유(헤드룸)의 몇 %를 채웠는가'로 환산합니다.
-        n = (현재 - 배경) / (255 - 배경)
-    이러면 검은 표적 중앙이든 흰 바깥이든 레이저가 채널을 포화시키면 n≈1이 되어
-    배경 밝기와 무관하게 같은 강도로 측정됩니다.
-
-      mRed = 100 × (nR - 0.5(nG + nB))   붉은 기운   (조명 전체 변화에 둔감)
-      mLum = 100 × (0.4nR + 0.4nG + 0.2nB) 밝기 상승 (포화된 흰 코어 대응)
-
-    두 지표 모두 0~100 범위이므로 임계값을 직관적으로 정할 수 있습니다.
-    단, 배경이 255에 가까우면 작은 잡음도 크게 증폭되므로
-    '원본 단계에서 최소 ABS_GATE 이상 올라야 한다'는 조건을 함께 겁니다.
-    ------------------------------------------------------------------ */
-const HR_MIN  = 12;   // 헤드룸 하한 (0으로 나누기·과증폭 방지)
-const ABS_GATE = 7;   // 원본 계조 기준 최소 상승폭
-const REF_ABS = 55;   // 절대 상승폭 기준 (어두운 배경용). 이 값만큼 오르면 1.0
-const REF_BG  = 30;   // 무게중심 반사율 보정 시 배경 밝기 하한 (잡음 증폭 방지)
-
-/*  헤드룸 기준만 쓰면 어두운 곳에서 신호를 과소평가합니다.
-    표적 흑심(밝기 30)은 여유가 225나 되므로, 레이저가 27계조를 올려도
-    27/225 = 0.12 밖에 안 되어 임계값에 못 미칩니다.
-    하지만 배경이 30인 곳에서 27이 오른 것은 밝기가 거의 두 배가 된 큰 변화입니다.
-    그래서 '여유 대비'와 '절대 상승폭' 중 큰 쪽을 채택합니다.
-      밝은 배경 → 여유가 작으므로 '여유 대비'가 크게 나옴
-      어두운 배경 → 여유는 크지만 절대 상승폭이 뚜렷하므로 그쪽이 채택됨          */
-function norm(d, bg){
-  const head = 255-bg > HR_MIN ? 255-bg : HR_MIN;
-  const a = d/head, b = d/REF_ABS;
-  return a>b ? a : b;
-}
-
-/*  ★ 검출용 지표와 위치계산용 지표를 분리합니다 ★
-    ------------------------------------------------------------------
-    카메라는 영상을 YUV420으로 내보냅니다. 밝기(Y)는 픽셀마다 온전히 담기지만
-    색차(U,V)는 가로세로 2픽셀을 하나로 묶어 절반 해상도로 줄여 보냅니다.
-    그래서 '붉은 기운' 지표는 실제로는 뭉개진 정보이고,
-    이걸로 무게중심을 구하면 위치가 계단처럼 밀립니다.
-
-    실측(YUV420 왕복 시험):
-        붉은 기운 기준 무게중심 오차  0.09px → 0.52px  (6배 악화)
-        밝기 기준   무게중심 오차  0.09px → 0.10px  (영향 없음)
-
-    따라서
-      · 무엇이 레이저인가 판단 → 붉은 기운 + 밝기 (조명 변화에 강함)
-      · 그것이 어디에 있는가   → 밝기만 (해상도 손실 없음)
-    로 나눕니다.                                                        */
-const maskBuf={arr:null,n:0};
-const lumBuf={arr:null,n:0};
-const labelBuf={arr:null,n:0};
-const stackBuf={arr:null,n:0};
-function ensureBuf(buf, n, Ctor){
-  if(!buf.arr||buf.n<n){ buf.arr=new Ctor(n); buf.n=n; }
-  return buf.arr;
-}
-
-function detect(img, bg, w, h, thRed, thLum, minA, maxA){
-  const n=w*h, d=img.data;
-  const wgt=ensureBuf(maskBuf, n, Float32Array);
-  const lum=ensureBuf(lumBuf, n, Float32Array);
-  const lab=ensureBuf(labelBuf, n, Int32Array);
-  let anyPix=false;
-  let maxRed=0, maxLum=0, sumRed=0, sumLum=0;
-
-  for(let i=0,p=0;i<n;i++,p+=4){
-    const bR=bg.mR[i], bG=bg.mG[i], bB=bg.mB[i];
-    const dR=d[p]-bR, dG=d[p+1]-bG, dB=d[p+2]-bB;
-
-    // 원본 계조에서 충분히 오르지 않았으면 잡음으로 간주하고 즉시 탈락
-    if(dR<ABS_GATE && dG<ABS_GATE && dB<ABS_GATE){ wgt[i]=0; lum[i]=0; lab[i]=0; continue; }
-
-    /* 위치 계산 전용 가중치 — 밝기 상승분(전해상도)을 '배경 밝기로 나눈' 값.
-       ------------------------------------------------------------------
-       레이저 점이 인쇄된 링 선에 걸치면, 밝은 선 위에서는 빛이 많이 반사되고
-       검은 바탕 위에서는 적게 반사됩니다. 밝기 상승분을 그대로 쓰면 무게중심이
-       밝은 선 쪽으로 끌려가 좌표가 밀립니다.
-
-       관측된 상승분 d ≈ (레이저 세기) × (그 지점의 반사율)
-       배경 밝기     b ≈ (조명)       × (그 지점의 반사율)
-       이므로 d/b 를 쓰면 반사율이 약분되어 순수한 레이저 세기 분포만 남습니다.
-
-       실측: 링 선이 지나는 지점의 탄착 오차 1.9mm → 0.5mm 로 개선                */
-    const yd=0.30*dR+0.59*dG+0.11*dB;
-    const yb=0.30*bR+0.59*bG+0.11*bB;
-    lum[i]= yd>0 ? yd/(yb>REF_BG?yb:REF_BG) : 0;
-
-    const nR=norm(dR,bR), nG=norm(dG,bG), nB=norm(dB,bB);
-
-    const mRed=100*(nR-0.5*(nG+nB));
-    const mLum=100*(0.4*nR+0.4*nG+0.2*nB);
-    if(mRed>maxRed) maxRed=mRed;
-    if(mLum>maxLum) maxLum=mLum;
-    if(mRed>0) sumRed+=mRed;
-    if(mLum>0) sumLum+=mLum;
-
-    /* 임계값 대비 '초과 배율'로 환산해 두 지표를 같은 척도에 올린다.
-       exc = 1.0 이면 겨우 임계값, 2.0 이면 임계값의 두 배로 뚜렷하다는 뜻. */
-    const exc = Math.max(mRed/thRed, mLum/thLum);
-    const v = exc>1 ? exc : 0;
-    wgt[i]=v;
-    lab[i]=v>0?-1:0;
-    if(v>0) anyPix=true;
-  }
-  const stats={maxRed,maxLum,flood:false};
-
-  /* ★ 조명 변화 방어 ★
-     레이저는 ROI의 0.1%도 안 되는 아주 작은 점이므로, 화면 전체의 평균 상승분은 0에 가깝습니다.
-     반대로 조명이 켜지거나 카메라 노출이 재조정되면 모든 픽셀이 함께 올라가 평균이 크게 뜁니다.
-     이 평균값 하나로 두 상황을 확실히 구분할 수 있습니다.                                    */
-  if(sumLum/n > 8 || sumRed/n > 8){
-    stats.flood=true;
-    return {blobs:[],stats};
-  }
-  if(!anyPix) return {blobs:[],stats};
-
-  /* 잡음이 임계값을 살짝 넘어 생긴 조각 제거 — 진짜 레이저는 임계값을 확실히 넘습니다. */
-  const peakGate = 1.25;
-
-  /* 연결성분 (4-이웃, 명시적 스택 — 재귀 금지) */
-  const st=ensureBuf(stackBuf, n, Int32Array);
-  const blobs=[];
-  for(let i0=0;i0<n;i0++){
-    if(lab[i0]!==-1) continue;
-    let sp=0; st[sp++]=i0; lab[i0]=1;
-    let area=0, sw=0, sx=0, sy=0, peak=0;
-    let minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
-    while(sp>0){
-      const i=st[--sp];
-      const x=i%w, y=(i-x)/w;
-      const v=wgt[i];
-      // 면적·형태 판정은 검출 지표로, 무게중심은 밝기 지표로 계산한다
-      const lv=lum[i]>0?lum[i]:0.001;
-      area++; sw+=lv; sx+=lv*x; sy+=lv*y;
-      if(v>peak) peak=v;
-      if(x<minx)minx=x; if(x>maxx)maxx=x;
-      if(y<miny)miny=y; if(y>maxy)maxy=y;
-      if(x>0   && lab[i-1]===-1){ lab[i-1]=1; st[sp++]=i-1; }
-      if(x<w-1 && lab[i+1]===-1){ lab[i+1]=1; st[sp++]=i+1; }
-      if(y>0   && lab[i-w]===-1){ lab[i-w]=1; st[sp++]=i-w; }
-      if(y<h-1 && lab[i+w]===-1){ lab[i+w]=1; st[sp++]=i+w; }
-      /* ※ 여기서 break로 빠져나가면 안 됩니다.
-         아직 스택에 넣지 않은 나머지 픽셀이 미방문 상태로 남아,
-         바깥 루프가 그것들을 '새로운 작은 덩어리'로 다시 잡아냅니다.
-         큰 조명 반사가 여러 개의 가짜 탄착으로 쪼개지는 원인이 됩니다.
-         반드시 덩어리 전체를 끝까지 소진한 뒤 크기로 판단해야 합니다. */
-    }
-    if(area<minA||area>maxA) continue;
-    if(peak<peakGate) continue;   // 잡음 조각 제거
-    const bw=maxx-minx+1, bh=maxy-miny+1;
-    const ar=Math.max(bw,bh)/Math.max(1,Math.min(bw,bh));
-    if(ar>4) continue;            // 길쭉한 것은 반사/줄무늬
-    const fill=area/(bw*bh);
-    if(fill<0.25) continue;       // 성긴 것은 잡음
-    if(sw<=0) continue;
-    blobs.push({
-      x:sx/sw + 0.5,              // 서브픽셀 무게중심 (픽셀 중심 보정)
-      y:sy/sw + 0.5,
-      area, peak, weight:sw
-    });
-  }
-  blobs.sort((a,b)=>b.weight-a.weight);
-  return {blobs:blobs.slice(0,8), stats};
-}
-
-/* ===================== 9. 추적 · 확정 ===================== */
-function updateTracks(hits, now){
-  const matchR = 14;   // px (ROI 원본 해상도 기준)
-  for(const t of S.tracks) t.seen=false;
-
-  for(const b of hits){
-    let best=null, bd=1e9;
-    for(const t of S.tracks){
-      const d=Math.hypot(t.x-b.x, t.y-b.y);
-      if(d<bd){ bd=d; best=t; }
-    }
-    if(best && bd<matchR){
-      // 가중 누적 — 여러 프레임 평균으로 무게중심 잡음을 줄인다
-      best.sw+=b.weight; best.sx+=b.x*b.weight; best.sy+=b.y*b.weight;
-      best.x=best.sx/best.sw; best.y=best.sy/best.sw;
-      best.frames++; best.last=now; best.seen=true;
-      best.peak=Math.max(best.peak,b.peak);
-      best.areaMax=Math.max(best.areaMax,b.area);
-      best.isMiss=best.isMiss&&b.isMiss;
-    }else{
-      S.tracks.push({
-        x:b.x,y:b.y, sx:b.x*b.weight, sy:b.y*b.weight, sw:b.weight,
-        frames:1, start:now, last:now, seen:true,
-        peak:b.peak, areaMax:b.area, isMiss:!!b.isMiss
-      });
-    }
-  }
-  // 너무 오래 지속되는 것은 격발이 아니라 조명 변화/반사로 판단해 폐기
-  const MAX_LIFE=2000; // ms
-  for(let i=S.tracks.length-1;i>=0;i--){
-    const t=S.tracks[i];
-    if(t.seen && now-t.start>MAX_LIFE){
-      S.tracks.splice(i,1);
-      log('2초 이상 지속되어 조명/반사로 판단, 폐기했습니다. (배경 재학습 권장)');
-    }
-  }
-
-  // 사라진 트랙 확정
-  const GAP=90; // ms 동안 안 보이면 종료로 판단
-  for(let i=S.tracks.length-1;i>=0;i--){
-    const t=S.tracks[i];
-    if(t.seen) continue;
-    if(now-t.last < GAP) continue;
-    S.tracks.splice(i,1);
-    if(t.frames < CFG.minF) continue;
-    if(t.last-t.start > MAX_LIFE) continue;
-    if(now - S.lastEmitAt < CFG.cool &&
-       S.lastEmitPos && Math.hypot(S.lastEmitPos.x-t.x, S.lastEmitPos.y-t.y)<matchR*2){
-      log('중복 격발로 판단해 무시했습니다.');
-      continue;
-    }
-    emitShot(t, now);
-  }
-}
-
-function emitShot(t, now){
-  let vx, vy;
-  if(t.isMiss){ vx = t.x*S.vw/WIDE_W; vy = t.y*S.vh/WIDE_H; }
-  else       { vx = S.roi.x + t.x;    vy = S.roi.y + t.y; }
-  const mm=applyH(S.Hinv, vx, vy);
-  const r=Math.hypot(mm.x, mm.y);
-  const ringMm=(CFG.dia/2)/CFG.rings;
-  // 채점 영역은 원형입니다 (최외곽 링 바깥은 이탈)
-  const outside = r > CFG.dia/2;
-  const sInt = outside ? 0 : Math.max(0, Math.min(CFG.rings, CFG.rings+1-Math.ceil(r/ringMm)));
-  const sDec = outside ? 0 : Math.max(0, Math.min(CFG.rings+0.9, (CFG.rings+1)-r/ringMm));
-
-  const shot={
-    id:S.nextId++, t:now,
-    xmm:mm.x, ymm:mm.y, r,
-    score:sInt, dec:sDec, miss:outside,
-    frames:t.frames, peak:Math.round(t.peak), area:t.areaMax,
-    dur:Math.round(t.last-t.start)
-  };
-  S.shots.push(shot);
-  S.lastEmitAt=now; S.lastEmitPos={x:t.x,y:t.y};
-
-  log(outside
-    ? `이탈 — (${mm.x.toFixed(1)}, ${mm.y.toFixed(1)})mm, ${t.frames}프레임`
-    : `${S.shots.length}발 — (${mm.x.toFixed(1)}, ${mm.y.toFixed(1)})mm  ${sInt}점 (${sDec.toFixed(1)})  ${t.frames}프레임 ${Math.round(t.last-t.start)}ms`);
-
-  if(t.frames===1 && CFG.minF===1)
-    log('  ↑ 1프레임만 포착됨. 아두이노 펄스를 늘리면 정밀도가 올라갑니다.');
-
-  updateTable(); updateStats();
-  document.getElementById('bReset').disabled=false;
-  document.getElementById('bCsv').disabled=false;
-}
-
-/* ===================== 10. 메인 루프 ===================== */
-let lastT=0;
-function startLoop(){
-  if(S.running) return;
-  S.running=true;
-  keepAwake();
-  const hasRVFC = typeof video.requestVideoFrameCallback === 'function';
-  const step=()=>{
-    if(!S.running) return;
-    tick();
-    if(hasRVFC) video.requestVideoFrameCallback(step);
-    else requestAnimationFrame(step);
-  };
-  if(hasRVFC) video.requestVideoFrameCallback(step);
-  else requestAnimationFrame(step);
-  log('처리 루프 시작 ('+(hasRVFC?'프레임 동기':'화면 동기')+')');
-}
-
 function tick(){
-  const now=performance.now();
-  S.frames++;
-  if(now-S.fpsT>=500){
-    S.fps=S.frames*1000/(now-S.fpsT);
-    S.frames=0; S.fpsT=now;
-    document.getElementById('mFps').textContent=S.fps.toFixed(0);
-    document.getElementById('mMs').innerHTML=S.procMs.toFixed(1)+'<small>ms</small>';
-  }
-
-  const t0=performance.now();
-
-  if(S.mode==='bg'){
-    if(S.roi){
-      accBg(S.bg, grabROI());
-      accBg(S.bgWide, grabWide());
-      bgCount++;
-      badge.textContent=`배경 학습 중… ${Math.round(bgCount/BG_FRAMES*100)}%`;
-      if(bgCount>=BG_FRAMES){
-        finishBg(S.bg); finishBg(S.bgWide);
-        S.mode='idle';
-        document.getElementById('bRun').disabled=false;
-        badge.textContent='배경 학습 완료\n[신호 강도 측정] 또는 [검출 시작]';
-        log('배경 학습 완료');
-      }
+  const now=performance.now(); E.frames++;
+  if(now-E.fpsT>=600){ E.fps=E.frames*1000/(now-E.fpsT); E.frames=0; E.fpsT=now; }
+  if(E.mode==='bg'&&E.roi){
+    const img=grabROI(),d=img.data,bg=E.bg;
+    for(let i=0,p=0;i<bg.n;i++,p+=4){ bg.sR[i]+=d[p];bg.sG[i]+=d[p+1];bg.sB[i]+=d[p+2]; }
+    bg.cnt++; E.bgCount++;
+    badge.textContent=`배경 학습 중… ${Math.round(E.bgCount/BG_FRAMES*100)}%`;
+    if(E.bgCount>=BG_FRAMES){
+      const k=1/bg.cnt; bg.mR=new Float32Array(bg.n);bg.mG=new Float32Array(bg.n);bg.mB=new Float32Array(bg.n);
+      for(let i=0;i<bg.n;i++){ bg.mR[i]=bg.sR[i]*k;bg.mG[i]=bg.sG[i]*k;bg.mB[i]=bg.sB[i]*k; }
+      bg.sR=bg.sG=bg.sB=null; bg.ready=true; E.mode='idle';
+      badge.textContent='준비 완료'; log('배경 학습 완료'); updReady(); refreshFireState();
     }
+  } else if(E.mode==='run'&&E.bg&&E.bg.ready&&E.bg.mR){
+    const img=grabROI();
+    const R=detect(img,E.bg,E.roi.w,E.roi.h,CFG.red,CFG.lum,CFG.minA,CFG.maxA);
+    if(R.stats.flood){
+      if(!E.floodSince) E.floodSince=now;
+      else if(now-E.floodSince>1500&&now-E.floodWarn>8000){ E.floodWarn=now;
+        badge.textContent='⚠ 화면이 배경과 어긋납니다\n카메라가 움직였는지 확인하십시오';
+        log('⚠ 배경 불일치 지속 — 태블릿이 밀렸다면 표적 맞추기부터 다시 하십시오.'); }
+    } else E.floodSince=0;
+    track(R.blobs,now);
+    E.lastHits=R.blobs;
   }
-  else if(S.mode==='run' || S.mode==='probe'){
-    if(S.bg && S.bg.ready){
-      const roiImg=grabROI();
-      const R=detect(roiImg, S.bg, S.roi.w, S.roi.h, CFG.red, CFG.lum, CFG.minA, CFG.maxA);
-      let hits=R.blobs;
-
-      let wideHits=[];
-      if(CFG.miss && S.bgWide && S.bgWide.ready){
-        const wImg=grabWide();
-        const scale=S.vw/WIDE_W;
-        const W=detect(wImg, S.bgWide, WIDE_W, WIDE_H,
-                       CFG.red*0.8, CFG.lum*0.8,
-                       Math.max(1,Math.round(CFG.minA/(scale*scale))),
-                       Math.max(20,Math.round(CFG.maxA/(scale*scale))));
-        // ROI 안쪽에서 이미 잡힌 것은 제외
-        for(const b of W.blobs){
-          const vx=b.x*scale, vy=b.y*S.vh/WIDE_H;
-          if(vx>=S.roi.x && vx<=S.roi.x+S.roi.w && vy>=S.roi.y && vy<=S.roi.y+S.roi.h) continue;
-          b.isMiss=true;
-          wideHits.push(b);
-        }
-      }
-
-      /* ★ 카메라 이동 감지 ★
-         화면 전체가 배경과 어긋나는 상태(flood)가 계속되면 조명 변화가 아니라
-         태블릿이 밀렸을 가능성이 큽니다. 이때는 캘리브레이션도 함께 깨졌으므로
-         조용히 넘어가면 안 되고 반드시 알려야 합니다. */
-      if(R.stats.flood){
-        if(!S.floodSince) S.floodSince=now;
-        else if(now-S.floodSince>1500 && now-(S.floodWarnAt||0)>8000){
-          S.floodWarnAt=now;
-          badge.textContent='⚠ 화면이 배경과 어긋납니다\n카메라가 움직였는지 확인하십시오';
-          log('⚠ 1.5초 이상 화면 전체가 배경과 불일치합니다. 태블릿이 밀렸다면 [표적 맞추기]부터 다시, 조명이 바뀐 것이라면 [배경 학습]만 다시 하십시오.');
-        }
-      }else{
-        if(S.floodSince && now-S.floodSince>1500 && S.mode==='run')
-          badge.textContent='검출 중';
-        S.floodSince=0;
-      }
-
-      if(S.mode==='probe'){
-        const s=R.stats;
-        S.probe.red=Math.max(S.probe.red, s.maxRed);
-        S.probe.lum=Math.max(S.probe.lum, s.maxLum);
-        if(hits.length) S.probe.area=Math.max(S.probe.area, hits[0].area);
-        updateProbe();
-      }else{
-        updateTracks(hits.concat(wideHits), now);
-        if(hits.length===0 && wideHits.length===0){
-          if((S.frames&15)===0) driftBg(S.bg, roiImg, 0.02);
-        }
-      }
-      S.lastHits=hits; S.lastWide=wideHits;
-    }
-  }
-
-  S.procMs = S.procMs*0.85 + (performance.now()-t0)*0.15;
-  render();
+  renderOverlay();
 }
-
-/* ===================== 11. 화면 그리기 ===================== */
-function render(){
-  if(!S.vw) return;
-  const {s}=dispScale();
-  const w=overlay.width/(Math.min(window.devicePixelRatio||1,2));
-  const h=overlay.height/(Math.min(window.devicePixelRatio||1,2));
+function track(hits,now){
+  const MR=14,GAP=90,LIFE=2000;
+  for(const t of E.tracks) t.seen=false;
+  for(const b of hits){
+    let best=null,bd=1e9;
+    for(const t of E.tracks){ const d=Math.hypot(t.x-b.x,t.y-b.y); if(d<bd){bd=d;best=t;} }
+    if(best&&bd<MR){ best.sw+=b.weight;best.sx+=b.x*b.weight;best.sy+=b.y*b.weight;
+      best.x=best.sx/best.sw;best.y=best.sy/best.sw;best.frames++;best.last=now;best.seen=true;
+      best.peak=Math.max(best.peak,b.peak);best.area=Math.max(best.area,b.area); }
+    else E.tracks.push({x:b.x,y:b.y,sx:b.x*b.weight,sy:b.y*b.weight,sw:b.weight,
+      frames:1,start:now,last:now,seen:true,peak:b.peak,area:b.area});
+  }
+  for(let i=E.tracks.length-1;i>=0;i--){
+    const t=E.tracks[i];
+    if(t.seen&&now-t.start>LIFE){ E.tracks.splice(i,1); continue; }
+    if(t.seen||now-t.last<GAP) continue;
+    E.tracks.splice(i,1);
+    if(t.frames<CFG.minF) continue;
+    if(t.last-t.start>LIFE) continue;
+    if(now-E.lastEmit<CFG.cool&&E.lastPos&&Math.hypot(E.lastPos.x-t.x,E.lastPos.y-t.y)<MR*2) continue;
+    E.lastEmit=now; E.lastPos={x:t.x,y:t.y};
+    onShot(t);
+  }
+}
+function startLoop(){
+  if(E.running) return; E.running=true;
+  const rv=typeof video.requestVideoFrameCallback==='function';
+  const step=()=>{ if(!E.running) return; tick();
+    rv?video.requestVideoFrameCallback(step):requestAnimationFrame(step); };
+  rv?video.requestVideoFrameCallback(step):requestAnimationFrame(step);
+}
+function renderOverlay(){
+  if(!E.vw) return;
+  // 미리보기가 화면에 없으면 그릴 필요가 없다 (발열·배터리 절약)
+  if(!stage.offsetParent) return;
+  const {s}=dispScale(), dpr=Math.min(window.devicePixelRatio||1,2);
+  const w=overlay.width/dpr,h=overlay.height/dpr;
   octx.clearRect(0,0,w,h);
-  const P=p=>({x:p.x*s, y:p.y*s});
-
-  // 캘리브레이션 진행 중 찍힌 점
-  if(S.mode==='calib'){
+  const P=p=>({x:p.x*s,y:p.y*s});
+  if(E.mode==='calib'){
     octx.fillStyle='#E2452F';
-    calibPts.forEach((p,i)=>{
-      const q=P(p);
-      octx.beginPath(); octx.arc(q.x,q.y,5,0,7); octx.fill();
-      octx.fillStyle='#fff'; octx.font='bold 11px monospace';
-      octx.fillText(String(i+1), q.x+8, q.y-6);
-      octx.fillStyle='#E2452F';
-    });
-    if(calibPts.length>1){
-      octx.strokeStyle='rgba(226,69,47,.85)'; octx.lineWidth=2;
-      octx.beginPath();
-      calibPts.forEach((p,i)=>{ const q=P(p); i?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y); });
-      octx.stroke();
-    }
+    calibPts.forEach((p,i)=>{ const q=P(p); octx.beginPath();octx.arc(q.x,q.y,5,0,7);octx.fill(); });
+    if(calibPts.length>1){ octx.strokeStyle='rgba(226,69,47,.85)';octx.lineWidth=2;octx.beginPath();
+      calibPts.forEach((p,i)=>{const q=P(p);i?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y);});octx.stroke(); }
   }
-
-  if(S.quad && S.H){
-    // 캘리브레이션에 쓴 네 점 (참고용 얇은 선)
-    octx.strokeStyle='rgba(23,166,124,.55)'; octx.lineWidth=1.5;
-    octx.setLineDash([4,3]);
-    octx.beginPath();
-    S.quad.forEach((p,i)=>{ const q=P(p); i?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y); });
-    octx.closePath(); octx.stroke();
-    octx.setLineDash([]);
-    // 실제 채점 경계 = 최외곽 링 (굵은 선)
-    octx.strokeStyle='rgba(23,166,124,.95)'; octx.lineWidth=2;
-    octx.beginPath();
-    for(let a=0;a<=72;a++){
-      const th=a/72*Math.PI*2;
-      const q=P(applyH(S.H, Math.cos(th)*CFG.dia/2, Math.sin(th)*CFG.dia/2));
-      a?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y);
-    }
-    octx.closePath(); octx.stroke();
-
-    // ROI
-    if(S.roi){
-      octx.strokeStyle='rgba(255,255,255,.35)'; octx.lineWidth=1;
-      octx.setLineDash([5,4]);
-      octx.strokeRect(S.roi.x*s, S.roi.y*s, S.roi.w*s, S.roi.h*s);
-      octx.setLineDash([]);
-    }
-
-    // 링 (원근 반영, 10점/5점만)
-    octx.strokeStyle='rgba(23,166,124,.45)'; octx.lineWidth=1;
-    const ringMm=(CFG.dia/2)/CFG.rings;
-    [1, Math.round(CFG.rings/2)].forEach(k=>{
-      const rr=ringMm*k;
-      octx.beginPath();
-      for(let a=0;a<=64;a++){
-        const th=a/64*Math.PI*2;
-        const q=P(applyH(S.H, Math.cos(th)*rr, Math.sin(th)*rr));
-        a?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y);
-      }
-      octx.closePath(); octx.stroke();
-    });
-
-    // 중심
-    const c=P(applyH(S.H,0,0));
-    octx.strokeStyle='rgba(23,166,124,.9)'; octx.lineWidth=1.5;
-    octx.beginPath();
-    octx.moveTo(c.x-7,c.y); octx.lineTo(c.x+7,c.y);
-    octx.moveTo(c.x,c.y-7); octx.lineTo(c.x,c.y+7);
-    octx.stroke();
+  if(E.quad&&E.H){
+    octx.strokeStyle='rgba(23,166,124,.95)';octx.lineWidth=2;octx.beginPath();
+    for(let a=0;a<=72;a++){ const t=a/72*Math.PI*2;
+      const q=P(applyH(E.H,Math.cos(t)*CFG.dia/2,Math.sin(t)*CFG.dia/2));
+      a?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y); }
+    octx.closePath();octx.stroke();
+    const c=P(applyH(E.H,0,0));
+    octx.beginPath();octx.moveTo(c.x-7,c.y);octx.lineTo(c.x+7,c.y);
+    octx.moveTo(c.x,c.y-7);octx.lineTo(c.x,c.y+7);octx.lineWidth=1.5;octx.stroke();
   }
-
-  // 현재 프레임 후보
-  if(S.lastHits) for(const b of S.lastHits){
-    const q={x:(S.roi.x+b.x)*s, y:(S.roi.y+b.y)*s};
-    octx.strokeStyle='#FFD400'; octx.lineWidth=1.5;
-    octx.beginPath(); octx.arc(q.x,q.y,9,0,7); octx.stroke();
-  }
-  if(S.lastWide) for(const b of S.lastWide){
-    const q={x:b.x*S.vw/WIDE_W*s, y:b.y*S.vh/WIDE_H*s};
-    octx.strokeStyle='#FF8A00'; octx.lineWidth=1.5;
-    octx.beginPath(); octx.arc(q.x,q.y,11,0,7); octx.stroke();
-  }
-
-  // 확정된 탄착
-  if(S.H) S.shots.forEach((sh,i)=>{
-    const q=P(applyH(S.H, sh.xmm, sh.ymm));
+  if(E.mode==='run'&&E.lastHits) for(const b of E.lastHits){
+    const q={x:(E.roi.x+b.x)*s,y:(E.roi.y+b.y)*s};
+    octx.strokeStyle='#FFD400';octx.lineWidth=1.5;octx.beginPath();octx.arc(q.x,q.y,9,0,7);octx.stroke(); }
+  const marks = TEST.on||TEST.shots.length ? TEST.shots : SES.shots;
+  if(E.H&&marks.length) marks.forEach((sh,i)=>{
+    const q=P(applyH(E.H,sh.x,sh.y));
     octx.fillStyle=sh.miss?'#FF8A00':'#E2452F';
-    octx.beginPath(); octx.arc(q.x,q.y,5.5,0,7); octx.fill();
-    octx.strokeStyle='#fff'; octx.lineWidth=1.5; octx.stroke();
-    octx.fillStyle='#fff'; octx.font='bold 10px monospace';
-    octx.fillText(String(i+1), q.x+8, q.y-5);
+    octx.beginPath();octx.arc(q.x,q.y,5.5,0,7);octx.fill();
+    octx.strokeStyle='#fff';octx.lineWidth=1.5;octx.stroke();
+    octx.fillStyle='#fff';octx.font='bold 10px monospace';octx.fillText(String(i+1),q.x+8,q.y-5); });
+}
+
+/* ★ 교사 테스트 사격 ★
+   학생 데이터를 만들지 않고 검출이 되는지만 확인합니다.
+   시범 운영 전에 이걸로 반드시 몇 발 쏴 보십시오. */
+const TEST={on:false,shots:[]};
+function toggleTest(){
+  if(TEST.on){ TEST.on=false; E.mode='idle';
+    document.getElementById('tcTest').textContent='테스트 사격';
+    document.getElementById('tcTest').className='warn';
+    badge.textContent='준비 완료'; updTestInfo(); refreshFireState(); return; }
+  if(!E.bg||!E.bg.ready){ alert('먼저 [표적 맞추기]와 [배경 학습]을 하십시오.'); return; }
+  TEST.on=true; TEST.shots=[]; E.tracks=[]; E.mode='run';
+  document.getElementById('tcTest').textContent='테스트 종료';
+  document.getElementById('tcTest').className='danger';
+  badge.textContent='테스트 사격 중\n기록에 저장되지 않습니다';
+  updTestInfo();
+}
+function updTestInfo(){
+  const el=document.getElementById('tcTestInfo'); if(!el) return;
+  if(!TEST.shots.length){ el.innerHTML= TEST.on
+    ? '<span class="tag mid">대기</span> 레이저를 쏴 보십시오. 검출되면 여기에 좌표가 뜹니다.'
+    : '검출 확인용입니다. 여기서 쏜 것은 <b>학생 기록에 저장되지 않습니다.</b>'; return; }
+  const m=metrics(TEST.shots);
+  el.innerHTML=`<span class="tag ok">검출 ${TEST.shots.length}발</span> `+
+    `평균 ${m.avg.toFixed(1)}점 · 탄착군 ${Math.round(m.grp)}mm · 편향 ${m.mpiClock} ${Math.round(m.mpiDev)}mm<br>`+
+    TEST.shots.slice(-5).map(s=>`${s.no}발 (${s.x.toFixed(1)}, ${s.y.toFixed(1)})mm ${s.miss?'이탈':s.score+'점'} · ${s.frames}프레임`).join('<br>');
+}
+
+/* ===================== 사격 세션 ===================== */
+const SES={ stu:null, session:0, shots:[], firing:false, startedAt:0,
+            coachShownAt:0, coachDwell:0, mismatch:false, saved:false };
+
+function scoreOf(r){
+  const rm=ringMm();
+  if(r>CFG.dia/2) return {i:0,d:0,miss:true};
+  return { i:Math.max(0,Math.min(CFG.rings,CFG.rings+1-Math.ceil(r/rm))),
+           d:Math.max(0,Math.min(CFG.rings+0.9,(CFG.rings+1)-r/rm)), miss:false };
+}
+function onShot(t){
+  const vx=E.roi.x+t.x, vy=E.roi.y+t.y;
+  const mm=applyH(E.Hinv,vx,vy), r=Math.hypot(mm.x,mm.y), sc=scoreOf(r);
+  const rec={x:mm.x,y:mm.y,r,score:sc.i,dec:sc.d,miss:sc.miss,
+             frames:t.frames,peak:Math.round(t.peak),ts:Date.now()};
+  if(TEST.on){ rec.no=TEST.shots.length+1; TEST.shots.push(rec); updTestInfo(); return; }
+  if(!SES.firing) return;
+  rec.no=SES.shots.length+1; SES.shots.push(rec);
+  updShootUI();
+  if(SES.shots.length>=CFG.perRound) endRound();
+}
+function undoShot(){
+  if(!SES.shots.length||!SES.firing) return;
+  const s=SES.shots.pop();
+  SES.shots.forEach((x,i)=>x.no=i+1);
+  log(`직전 발 취소: (${s.x.toFixed(1)}, ${s.y.toFixed(1)})mm ${s.miss?'이탈':s.score+'점'}`);
+  updShootUI();
+}
+function updShootUI(){
+  const ub=document.getElementById('btnUndo');
+  if(ub) ub.disabled=!(SES.firing&&SES.shots.length>0);
+  const hit=SES.shots.filter(s=>!s.miss);
+  const sum=SES.shots.reduce((a,b)=>a+b.score,0);
+  document.getElementById('shN').textContent=SES.shots.length;
+  document.getElementById('shSum').textContent=sum;
+  document.getElementById('shAvg').textContent=SES.shots.length?(sum/SES.shots.length).toFixed(1):'–';
+  document.getElementById('stProg').textContent=`${SES.shots.length}/${CFG.perRound}`;
+  document.getElementById('shList').innerHTML=SES.shots.map(s=>
+    `<li class="${s.miss?'miss':''}"><span class="no">${s.no}발</span>`+
+    `<span class="pos">x ${s.x.toFixed(1)} · y ${s.y.toFixed(1)} mm</span>`+
+    `<span class="sc">${s.miss?'이탈':s.score+'점'}</span></li>`).join('');
+}
+function metrics(shots){
+  const hit=shots.filter(s=>!s.miss);
+  if(!hit.length) return {avg:0,dec:0,grp:0,mpiDev:0,mpiClock:'–',hits10:0};
+  const mx=hit.reduce((a,b)=>a+b.x,0)/hit.length, my=hit.reduce((a,b)=>a+b.y,0)/hit.length;
+  let g=0;
+  for(let i=0;i<hit.length;i++) for(let j=i+1;j<hit.length;j++)
+    g=Math.max(g,Math.hypot(hit[i].x-hit[j].x,hit[i].y-hit[j].y));
+  const deg=(Math.atan2(mx,my)*180/Math.PI+360)%360, hr=Math.round(deg/30)||12;
+  return { avg:shots.reduce((a,b)=>a+b.score,0)/shots.length,
+           dec:shots.reduce((a,b)=>a+b.dec,0)/shots.length,
+           grp:g, mpiDev:Math.hypot(mx,my), mpiClock:hr+'시', mpiX:mx, mpiY:my,
+           hits10:hit.filter(s=>s.score===CFG.rings).length };
+}
+/* 준비 상태(배경 학습 완료)는 학생이 로그인한 뒤에도 바뀔 수 있으므로
+   한 곳에서 버튼과 안내를 갱신합니다. */
+function refreshFireState(){
+  const b=document.getElementById('btnFire'); if(!b) return;
+  const ready=!!(E.bg&&E.bg.ready);   // 테스트 훅 포함
+  b.disabled=!ready||TEST.on;
+  if(SES.stu&&!SES.firing)
+    badge.textContent= ready?'준비 완료':'표적 준비가 안 되었습니다\n선생님께 알려 주세요';
+}
+function beginFire(){
+  if(!E.bg||!E.bg.ready){ alert('표적 준비가 끝나지 않았습니다.\n교사 설정에서 [표적 맞추기]와 [배경 학습]을 먼저 하십시오.'); return; }
+  SES.shots=[]; SES.firing=true; SES.startedAt=Date.now(); SES.saved=false;
+  E.tracks=[]; E.mode='run';
+  badge.textContent='사격하십시오';
+  document.getElementById('btnFire').textContent='중단';
+  updShootUI();
+}
+function stopFire(){ SES.firing=false; E.mode='idle'; badge.textContent='정지';
+  document.getElementById('btnFire').textContent='사격 시작'; }
+
+function endRound(){
+  stopFire();
+  const m=metrics(SES.shots);
+  saveRound(m,{force:true});
+  if(SES.stu.group==='E'){ SES.coachShownAt=performance.now(); renderCoach(m); goTab('coach'); }
+  else { renderRecord(); goTab('record'); }
+  badge.textContent=`${CFG.perRound}발 완료`;
+}
+/* ★ 같은 학생·같은 회차가 두 번 저장되면 분석이 망가집니다 ★
+   재측정 시 기존 행과 그 탄착을 지우고 새로 넣되, attempt 로 몇 번째 시도인지 남깁니다. */
+function saveRound(m,opts){
+  if(SES.saved&&!(opts&&opts.force)) return;
+  SES.saved=true;
+  const base={code:SES.stu.code,cls:SES.stu.cls,num:SES.stu.num,group:SES.stu.group,session:SES.session};
+  let attempt=1;
+  const prev=ROUNDS.filter(r=>r.code===base.code&&r.session===base.session);
+  if(prev.length){
+    attempt=Math.max(...prev.map(r=>r.attempt||1))+1;
+    ROUNDS=ROUNDS.filter(r=>!(r.code===base.code&&r.session===base.session));
+    SHOTS=SHOTS.filter(x=>!(x.code===base.code&&x.session===base.session));
+    log(`${SES.stu.nick} ${SES.session}회차 재측정 (${attempt}번째 시도) — 이전 기록을 대체했습니다.`);
+  }
+  SES.shots.forEach(s=>SHOTS.push(Object.assign({},base,{
+    shot_no:s.no,x_mm:+s.x.toFixed(2),y_mm:+s.y.toFixed(2),r_mm:+s.r.toFixed(2),
+    score:s.score,dec:+s.dec.toFixed(2),is_miss:s.miss?1:0,frames:s.frames,peak:s.peak,ts:s.ts})));
+  ROUNDS.push(Object.assign({},base,{
+    n:SES.shots.length, attempt, incomplete: SES.shots.length<CFG.perRound?1:0,
+    avg:+m.avg.toFixed(2),dec:+m.dec.toFixed(2),
+    grp_mm:+m.grp.toFixed(2),mpi_dev_mm:+m.mpiDev.toFixed(2),mpi_clock:m.mpiClock,
+    hits_max:m.hits10,miss:SES.shots.filter(s=>s.miss).length,
+    coach_shown:0,coach_dwell_ms:0,diag_code:'',drill_ids:'',drill_done:0,
+    class_mismatch:SES.mismatch?1:0, target_dia:CFG.dia, rings:CFG.rings,
+    mm_per_px:+E.mmPerPx.toFixed(4), ts:Date.now()}));
+  save(K.shots,SHOTS); save(K.rounds,ROUNDS); refreshLocks();
+  log(`${SES.stu.nick} ${SES.session}회차 저장 · 평균 ${m.avg.toFixed(1)}점`);
+}
+function patchRound(patch){
+  for(let i=ROUNDS.length-1;i>=0;i--){
+    if(ROUNDS[i].code===SES.stu.code&&ROUNDS[i].session===SES.session){
+      Object.assign(ROUNDS[i],patch); save(K.rounds,ROUNDS); return; }
+  }
+}
+
+/* ===================== 코칭 규칙 ===================== */
+const DRILLS={
+  D1:['빈 격발 10회','레이저를 끄고 방아쇠만 당겨 총구가 흔들리지 않는지 확인합니다.'],
+  D2:['3초 유지','격발 후 3초 동안 조준 자세를 그대로 유지한 뒤 표적을 확인합니다.'],
+  D3:['호흡 정지 후 격발','숨을 반쯤 내쉰 상태에서 멈추고, 그 상태로 격발합니다.'],
+  D4:['조준선 유지','격발 순간에도 가늠자와 가늠쇠가 일직선을 유지하는지 확인합니다.'],
+  D5:['견착 위치 재설정','총 뒤판을 어깨 홈에 같은 위치로 붙이는 연습을 5회 반복합니다.'],
+  D6:['좌우 정렬 확인','발 너비와 어깨선이 표적과 나란한지 확인하고 자세를 고정합니다.'],
+  D7:['리듬 격발','조준·정지·격발을 같은 박자로 5발 반복해 일관성을 만듭니다.'],
+  D8:['자세 고정 시간 늘리기','격발 전 정지 시간을 2초에서 4초로 늘려 흔들림을 줄입니다.'],
+  U1:['난도 상향','발수를 늘리거나 시간 제한을 두어 조건을 어렵게 만듭니다.']
+};
+function diagnose(m){
+  const rm=ringMm(), devR=m.mpiDev/rm, grpR=m.grp/rm;
+  const clock=parseInt(m.mpiClock,10)||12;
+  if(devR>=TH.mpi){
+    if(clock>=5&&clock<=7) return {code:'A-1',
+      title:`탄착군이 ${m.mpiClock} 방향으로 치우쳐 있어요`,
+      body:'여러 발이 아래쪽으로 몰린 것은 조준이 아니라 격발 순간의 습관 때문일 가능성이 큽니다. 방아쇠를 당길 때 손목이 아래로 눌리거나, 발사 직후 결과를 보려고 고개를 먼저 드는 동작이 자주 나타납니다.',
+      drills:['D1','D2']};
+    if(clock>=11||clock<=1) return {code:'A-2',
+      title:`탄착군이 ${m.mpiClock} 방향으로 치우쳐 있어요`,
+      body:'위쪽으로 몰렸다면 격발 순간 총구가 들리는 경우가 많습니다. 호흡을 멈추지 않은 상태에서 격발하면 이런 형태가 나타납니다.',
+      drills:['D3','D4']};
+    return {code:'A-3',
+      title:`탄착군이 ${m.mpiClock} 방향으로 치우쳐 있어요`,
+      body:'좌우로 몰린 것은 견착이 한쪽으로 기울었거나 발 위치가 표적과 나란하지 않을 때 나타납니다.',
+      drills:['D5','D6']};
+  }
+  if(grpR>=TH.grpBig) return {code:'B-1',
+    title:'조준은 정확한데 흩어짐이 큽니다',
+    body:'평균 탄착점은 중심에 가까우니 조준은 잘하고 있습니다. 다만 발마다 결과가 달라지고 있어, 매번 같은 동작을 반복하는 연습이 필요합니다.',
+    drills:['D7','D8']};
+  if(grpR<TH.grpOk) return {code:'B-2',
+    title:'안정적으로 잘 쏘고 있습니다',
+    body:'평균 탄착점도 중심에 가깝고 흩어짐도 작습니다. 지금 자세를 유지하면서 조건을 조금 더 어렵게 만들어 보십시오.',
+    drills:['U1']};
+  return {code:'B-3',
+    title:'중심에 모이고 있습니다',
+    body:'큰 편향은 없습니다. 흩어짐을 더 줄이는 데 집중하십시오.',
+    drills:['D7']};
+}
+function drawTarget(g,shots,opt){
+  const C=200,R=190,STEP=R/CFG.rings, K=R/(CFG.dia/2);
+  let h=`<rect x="0" y="0" width="400" height="400" fill="#FBFCFD"/>`;
+  const blackK=Math.round(CFG.rings*0.4);
+  h+=`<circle cx="${C}" cy="${C}" r="${STEP*blackK}" fill="#12161D"/>`;
+  for(let k=1;k<=CFG.rings;k++){ const r=STEP*k;
+    h+=`<circle cx="${C}" cy="${C}" r="${r}" fill="none" stroke="${k<=blackK?'rgba(255,255,255,.45)':'#C4CCD6'}" stroke-width="1"/>`; }
+  const pt=(s,col,rad,fade)=>`<circle cx="${C+s.x*K}" cy="${C-s.y*K}" r="${rad}" fill="${col}" stroke="#fff" stroke-width="1.6" opacity="${fade||1}"/>`;
+  // 탄착군 원은 탄착점 아래에, MPI 십자선은 탄착점 위에 그린다
+  // (십자선을 먼저 그리면 탄착점에 가려 보이지 않는다)
+  let cross='';
+  if(opt&&opt.group&&shots.length){
+    const m=metrics(shots), rad=m.grp/2*K+6;
+    const cx=C+m.mpiX*K, cy=C-m.mpiY*K;
+    h+=`<circle cx="${cx}" cy="${cy}" r="${rad}" fill="none" stroke="rgba(18,22,29,.55)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    cross=`<path d="M${cx-13} ${cy}H${cx+13}M${cx} ${cy-13}V${cy+13}" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>`
+         +`<path d="M${cx-13} ${cy}H${cx+13}M${cx} ${cy-13}V${cy+13}" stroke="#123D6B" stroke-width="2.5" stroke-linecap="round"/>`;
+  }
+  shots.forEach(s=>{ h+=pt(s,(opt&&opt.color)||'#E2452F',(opt&&opt.small)?5:6.5,opt&&opt.fade?0.5:1); });
+  g.innerHTML=h+cross;
+}
+function renderCoach(m){
+  drawTarget(document.getElementById('coachSvg'),SES.shots.filter(s=>!s.miss),{group:true});
+  document.getElementById('cAvg').textContent=m.avg.toFixed(1);
+  document.getElementById('cGrp').innerHTML=Math.round(m.grp)+'<small>mm</small>';
+  document.getElementById('cMpi').textContent=`${m.mpiClock} ${Math.round(m.mpiDev)}mm`;
+  const d=diagnose(m);
+  document.getElementById('cTitle').textContent=d.title;
+  document.getElementById('cBody').textContent=d.body;
+  document.getElementById('cDrill').innerHTML=d.drills.map(k=>
+    `<li><span class="k">${k}</span><span><b>${DRILLS[k][0]}</b> — ${DRILLS[k][1]}</span></li>`).join('');
+  document.getElementById('cDone').checked=false;
+  patchRound({coach_shown:1,diag_code:d.code,drill_ids:d.drills.join('|')});
+  log(`코칭 제시: ${d.code} (${d.drills.join(',')})`);
+}
+function closeCoach(){
+  if(SES.coachShownAt){ SES.coachDwell+=performance.now()-SES.coachShownAt; SES.coachShownAt=0;
+    patchRound({coach_dwell_ms:Math.round(SES.coachDwell),
+                drill_done:document.getElementById('cDone').checked?1:0}); }
+}
+
+/* ===================== 기록 탭 ===================== */
+function myRounds(){ return ROUNDS.filter(r=>r.code===SES.stu.code).sort((a,b)=>a.session-b.session); }
+function myShots(session){ return SHOTS.filter(s=>s.code===SES.stu.code&&s.session===session)
+  .map(s=>({x:s.x_mm,y:s.y_mm,miss:s.is_miss===1,score:s.score})); }
+let recMode='post';
+function renderRecord(){
+  const pre=myShots(1).filter(s=>!s.miss);
+  const now=(SES.shots.length?SES.shots.filter(s=>!s.miss):myShots(SES.session).filter(s=>!s.miss));
+  const g=document.getElementById('recSvg');
+  const showGroup = SES.stu.group==='E';   // 탄착군 원·MPI 십자는 실험집단만
+  if(recMode==='pre') drawTarget(g,pre,{small:true,color:'#6B7480',group:showGroup});
+  else if(recMode==='post') drawTarget(g,now,{small:true,group:showGroup});
+  else { drawTarget(g,pre,{small:true,color:'#6B7480',fade:true});
+    const c=g.innerHTML; drawTarget(g,now,{small:true}); g.innerHTML=c+g.innerHTML.replace(/^<rect[^>]*>/,''); }
+
+  const rs=myRounds();
+  const first=rs.find(r=>r.session===1), last=rs[rs.length-1];
+  const dv=document.getElementById('recDelta');
+  let html='';
+  if(first&&last&&first!==last){
+    html+=`<div class="delta"><div><div class="l">사전 평균</div><div class="v">${first.avg.toFixed(1)}</div></div>`+
+      `<div class="a">→</div><div style="text-align:right"><div class="l">최근 평균</div>`+
+      `<div class="v ${last.avg>=first.avg?'up':''}">${last.avg.toFixed(1)}</div></div></div>`;
+    if(showGroup)  // 탄착군 크기 수치는 실험집단만
+      html+=`<div class="delta"><div><div class="l">사전 탄착군</div><div class="v">${Math.round(first.grp_mm)}<small style="font-size:11px"> mm</small></div></div>`+
+        `<div class="a">→</div><div style="text-align:right"><div class="l">최근 탄착군</div>`+
+        `<div class="v ${last.grp_mm<=first.grp_mm?'up':''}">${Math.round(last.grp_mm)}<small style="font-size:11px"> mm</small></div></div></div>`;
+  } else html='<p class="note">회차가 쌓이면 사전·사후 비교가 표시됩니다.</p>';
+  dv.innerHTML=html;
+
+  // 회차별 평균 꺾은선
+  const L=34,Rr=8,T=12,B=26,W=320,H=150;
+  const vals=rs.map(r=>({s:r.session,v:r.avg}));
+  let ch='';
+  if(vals.length>=2){
+    const lo=Math.max(0,Math.min(...vals.map(v=>v.v))-1), hi=Math.min(CFG.rings,Math.max(...vals.map(v=>v.v))+1);
+    const x=i=>L+i*(W-L-Rr)/(vals.length-1), y=v=>T+(hi-v)/Math.max(.1,hi-lo)*(H-T-B);
+    [lo,(lo+hi)/2,hi].forEach(v=>{
+      ch+=`<line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-Rr}" y2="${y(v).toFixed(1)}" stroke="rgba(18,22,29,.1)"/>`;
+      ch+=`<text x="4" y="${(y(v)+3.5).toFixed(1)}" font-size="9" fill="rgba(18,22,29,.4)" font-family="monospace">${v.toFixed(1)}</text>`; });
+    ch+=`<path d="${vals.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(v.v).toFixed(1)).join(' ')}" fill="none" stroke="#17A67C" stroke-width="2.5" stroke-linejoin="round"/>`;
+    vals.forEach((v,i)=>{ ch+=`<circle cx="${x(i).toFixed(1)}" cy="${y(v.v).toFixed(1)}" r="3" fill="#17A67C"/>`;
+      ch+=`<text x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="9" fill="rgba(18,22,29,.4)" font-family="monospace">${v.s}</text>`; });
+  } else ch=`<text x="160" y="80" text-anchor="middle" font-size="11" fill="rgba(18,22,29,.4)">회차가 2개 이상이면 그래프가 표시됩니다</text>`;
+  document.getElementById('recChart').innerHTML=ch;
+}
+document.getElementById('recSw').addEventListener('click',ev=>{
+  const b=ev.target.closest('button'); if(!b) return;
+  recMode=b.dataset.m;
+  [...ev.currentTarget.children].forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  renderRecord();
+});
+
+/* ===================== 랭킹 ===================== */
+let rkMode='class';
+function renderRank(){
+  const scope = rkMode==='class' ? r=>r.cls===SES.stu.cls : ()=>true;
+  const best={};
+  ROUNDS.filter(scope).forEach(r=>{ if(!best[r.code]||r.avg>best[r.code].avg) best[r.code]={avg:r.avg,cls:r.cls,num:r.num}; });
+  const arr=Object.keys(best).map(code=>{
+    const s=ROSTER.students.find(s=>s.cls===best[code].cls&&s.num===best[code].num);
+    return {code,nick:s?s.nick:best[code].num,avg:best[code].avg,cls:best[code].cls};
+  }).sort((a,b)=>b.avg-a.avg).slice(0, rkMode==='class'?10:20);
+  document.getElementById('rkList').innerHTML=arr.length?arr.map((a,i)=>
+    `<li class="${a.code===SES.stu.code?'me':''}"><span class="p">${i+1}</span>`+
+    `<span class="nm">${a.nick}${rkMode==='grade'?` <span class="muted" style="font-size:12px">${a.cls}</span>`:''}</span>`+
+    `<span class="sc">${a.avg.toFixed(1)}</span></li>`).join('')
+    :'<li><span class="nm muted">아직 기록이 없습니다</span></li>';
+  document.getElementById('rkNote').innerHTML= CFG.serverUrl
+    ? '전체 학급 기록을 반영합니다.'
+    : '<b>이 태블릿에 저장된 기록만</b> 반영합니다. 서버를 연결하면 전체 순위가 표시됩니다.';
+}
+document.getElementById('rkSw').addEventListener('click',ev=>{
+  const b=ev.target.closest('button'); if(!b) return;
+  rkMode=b.dataset.m;
+  [...ev.currentTarget.children].forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  renderRank();
+});
+
+/* ===================== 화면 전환 ===================== */
+function showScreen(id){
+  ['scLogin','scStudent','scTeacher'].forEach(s=>
+    document.getElementById(s).classList.toggle('on',s===id));
+  if(id==='scTeacher') moveStage('T');
+  else if(id==='scStudent') moveStage('S');
+}
+const TABDEF=[{k:'shoot',n:'촬영'},{k:'coach',n:'AI 코칭'},{k:'record',n:'기록'},{k:'rank',n:'랭킹'}];
+function buildTabs(){
+  // ★ 비교집단에는 코칭 탭을 만들지 않는다 (비활성화가 아니라 부재)
+  const tabs=TABDEF.filter(t=>t.k!=='coach'||SES.stu.group==='E');
+  document.getElementById('stTabs').innerHTML=tabs.map((t,i)=>
+    `<button data-t="${t.k}" aria-selected="${i===0}">${t.n}</button>`).join('');
+}
+function goTab(k){
+  if(k==='coach'&&SES.stu.group!=='E') return;
+  ['shoot','coach','record','rank'].forEach(t=>{
+    const el=document.getElementById('pane'+t[0].toUpperCase()+t.slice(1));
+    if(el) el.classList.toggle('on',t===k);
   });
+  [...document.getElementById('stTabs').children].forEach(b=>
+    b.setAttribute('aria-selected',String(b.dataset.t===k)));
+  if(k!=='coach') closeCoach();
+  else if(!SES.coachShownAt) SES.coachShownAt=performance.now();
+  if(k==='record') renderRecord();
+  if(k==='rank') renderRank();
+  touch();
 }
+document.getElementById('stTabs').addEventListener('click',ev=>{
+  const b=ev.target.closest('button'); if(b) goTab(b.dataset.t);
+});
 
-/* ===================== 12. 표·통계 ===================== */
-function updateTable(){
-  const tb=document.getElementById('tbody');
-  tb.innerHTML=S.shots.map((s,i)=>
-    `<tr>
-      <td class="${s.miss?'miss':''}">${i+1}${s.miss?' 이탈':''}</td>
-      <td class="n">${s.xmm.toFixed(1)}</td>
-      <td class="n">${s.ymm.toFixed(1)}</td>
-      <td class="n"><b>${s.score}</b></td>
-      <td class="n">${s.dec.toFixed(1)}</td>
-      <td class="n">${s.frames}</td>
-      <td class="n">${s.peak}</td>
-    </tr>`).join('');
+/* ===================== 로그인 ===================== */
+let numBuf='';
+function buildPad(){
+  const pad=document.getElementById('lgPad');
+  pad.innerHTML=[1,2,3,4,5,6,7,8,9].map(n=>`<button data-k="${n}">${n}</button>`).join('')
+    +`<button data-k="del" class="act">←</button><button data-k="0">0</button><button data-k="clr" class="act">C</button>`;
 }
-function updateStats(){
-  const hit=S.shots.filter(s=>!s.miss);
-  document.getElementById('mShots').textContent=hit.length;
-  document.getElementById('mMiss').textContent=S.shots.length-hit.length;
-  if(hit.length){
-    const avg=hit.reduce((a,b)=>a+b.dec,0)/hit.length;
-    document.getElementById('mAvg').textContent=avg.toFixed(2);
-    let g=0;
-    for(let i=0;i<hit.length;i++) for(let j=i+1;j<hit.length;j++)
-      g=Math.max(g, Math.hypot(hit[i].xmm-hit[j].xmm, hit[i].ymm-hit[j].ymm));
-    document.getElementById('mGroup').innerHTML=g.toFixed(1)+'<small>mm</small>';
-  }else{
-    document.getElementById('mAvg').textContent='–';
-    document.getElementById('mGroup').innerHTML='–<small>mm</small>';
+document.getElementById('lgPad').addEventListener('click',ev=>{
+  const b=ev.target.closest('button'); if(!b) return;
+  const k=b.dataset.k;
+  if(k==='del') numBuf=numBuf.slice(0,-1);
+  else if(k==='clr') numBuf='';
+  else if(numBuf.length<3) numBuf+=k;
+  document.getElementById('lgNum').textContent=numBuf||'–';
+  document.getElementById('lgEnter').disabled=!numBuf;
+  document.getElementById('lgMsg').textContent='';
+});
+function lockState(){ return load(K.lock,null); }
+function refreshLogin(){
+  const lk=lockState();
+  document.getElementById('lgClass').textContent=lk?lk.cls:'수업 미설정';
+  document.getElementById('lgSes').textContent=lk?`${lk.session}회차`:'교사가 먼저 수업을 설정해야 합니다';
+  numBuf=''; document.getElementById('lgNum').textContent='–';
+  document.getElementById('lgEnter').disabled=true;
+  document.getElementById('lgMsg').textContent='';
+  otherCls=''; document.getElementById('lgOtherBox').style.display='none';
+}
+/* ★ 보강(다른 반) 학생 처리 ★
+   번호만으로 학생을 특정하면, 보강 온 2-6반 3번이 2-4반 3번으로 오인됩니다.
+   그러면 데이터가 남의 것으로 저장되고 집단도 뒤바뀝니다.
+   그래서 '다른 반입니다'를 누른 경우에는 학급을 직접 고르게 합니다. */
+let otherCls='';
+document.getElementById('lgOther').addEventListener('click',()=>{
+  const box=document.getElementById('lgOtherBox');
+  const open=box.style.display==='none';
+  box.style.display=open?'':'none';
+  if(open){
+    const cls=Object.keys(ROSTER.classes).sort();
+    document.getElementById('lgOtherCls').innerHTML=cls.map(c=>`<option>${c}</option>`).join('');
+    otherCls=cls[0]||'';
+  } else otherCls='';
+});
+document.getElementById('lgOtherCls').addEventListener('change',ev=>{ otherCls=ev.target.value; });
+
+document.getElementById('lgEnter').addEventListener('click',()=>{
+  const lk=lockState();
+  if(!lk){ msg('교사가 수업을 먼저 설정해야 합니다.','bad'); return; }
+  const num=parseInt(numBuf,10);
+  const useCls = otherCls || lk.cls;
+  let stu=lookupStudent(useCls,num);
+  let mismatch = useCls!==lk.cls;
+  if(!stu&&!otherCls){
+    // 고정 학급에 없는 번호 → 다른 학급에서 유일하게 찾히면 보강으로 간주
+    const cands=findAnywhere(num);
+    if(cands.length===1){ stu=lookupStudent(cands[0].cls,num); mismatch=true; }
+    else if(cands.length>1){
+      msg('여러 학급에 같은 번호가 있습니다. \'다른 반 학생입니다\'를 눌러 학급을 고르십시오.','mid'); return; }
+    else { msg('명부에 없는 번호입니다.','bad'); return; }
+  }
+  if(!stu){ msg(`${useCls}에 ${num}번이 없습니다.`,'bad'); return; }
+  if(!stu.group){ msg('집단이 배정되지 않은 학생입니다. 교사에게 알려 주십시오.','bad'); return; }
+  enterStudent(stu,lk.session,mismatch);
+});
+function msg(t,cls){ const el=document.getElementById('lgMsg');
+  el.innerHTML=`<span class="tag ${cls||''}">${t}</span>`; }
+
+function enterStudent(stu,session,mismatch){
+  SES.stu=stu; SES.session=session; SES.shots=[]; SES.firing=false;
+  SES.coachShownAt=0; SES.coachDwell=0; SES.mismatch=mismatch; SES.saved=false;
+  document.getElementById('stWho').textContent=stu.nick;
+  document.getElementById('stMeta').textContent=`${stu.cls} · ${stu.num}번 · ${session}회차`
+    +(mismatch?' · 보강':'');
+  document.getElementById('stProg').textContent=`0/${CFG.perRound}`;
+  buildTabs();
+  document.getElementById('btnFire').textContent='사격 시작';
+  refreshFireState();
+  updShootUI(); goTab('shoot'); showScreen('scStudent');
+  if(mismatch) log(`⚠ ${stu.cls} ${stu.num}번이 ${lockState().cls} 수업에서 입장 (보강) — class_mismatch 기록`);
+  log(`${stu.nick} 입장 · ${stu.group==='E'?'실험':'비교'}집단`);
+  touch();
+}
+function exitStudent(){
+  closeCoach();
+  /* 10발을 다 못 쏘고 나가도 쏜 것은 남겨야 합니다.
+     incomplete=1 로 표시해 두면 분석에서 걸러낼 수 있습니다. */
+  if(SES.stu&&!SES.saved&&SES.shots.length>0){
+    saveRound(metrics(SES.shots));
+    log(`${SES.stu.nick} ${SES.shots.length}발만 기록 (미완료로 저장)`);
+  }
+  stopFire();
+  SES.stu=null; SES.shots=[];
+  refreshLogin(); showScreen('scLogin');
+}
+document.getElementById('stExit').addEventListener('click',exitStudent);
+document.getElementById('cFinish').addEventListener('click',exitStudent);
+document.getElementById('rFinish').addEventListener('click',exitStudent);
+document.getElementById('cToRec').addEventListener('click',()=>goTab('record'));
+function redoRound(){
+  if(!confirm('이 회차를 다시 쏘시겠습니까?\n방금 기록은 새 측정으로 대체됩니다.')) return;
+  closeCoach();
+  SES.shots=[]; SES.saved=false; SES.coachDwell=0; SES.coachShownAt=0;
+  goTab('shoot'); updShootUI();
+  document.getElementById('btnFire').textContent='사격 시작';
+  badge.textContent='다시 사격하십시오';
+  log(`${SES.stu.nick} ${SES.session}회차 재측정 시작`);
+}
+document.getElementById('cRedo').addEventListener('click',redoRound);
+document.getElementById('rRedo').addEventListener('click',redoRound);
+document.getElementById('btnUndo').addEventListener('click',()=>{ undoShot(); touch(); });
+document.getElementById('btnFire').addEventListener('click',()=>{
+  if(SES.firing) stopFire(); else beginFire(); touch();
+});
+
+/* 무활동 자동 로그아웃 — 다음 학생의 발이 앞 학생 기록에 섞이는 것을 막는다 */
+let idleT=0;
+const IDLE_MS=300000;   // 코칭을 읽는 동안 쫓겨나지 않도록 5분
+function touch(){ idleT=Date.now(); }
+setInterval(()=>{
+  if(!SES.stu) return;
+  if(SES.firing) { touch(); return; }
+  if(Date.now()-idleT>IDLE_MS){ log('무활동 자동 로그아웃'); exitStudent(); }
+},5000);
+document.addEventListener('pointerdown',()=>{ if(SES.stu) touch(); },true);
+
+/* ===================== 교사 화면 ===================== */
+document.getElementById('lgTeacher').addEventListener('click',()=>{
+  document.getElementById('tcPin').value='';
+  document.getElementById('tcPinMsg').textContent='';
+  document.getElementById('tcPinBox').style.display='';
+  document.getElementById('tcBody').style.display='none';
+  showScreen('scTeacher');
+});
+document.getElementById('tcPinBack').addEventListener('click',()=>{ refreshLogin(); showScreen('scLogin'); });
+document.getElementById('tcPinOk').addEventListener('click',()=>{
+  const pin=load(K.pin,'1234');
+  if(document.getElementById('tcPin').value===String(pin)){
+    document.getElementById('tcPinBox').style.display='none';
+    document.getElementById('tcBody').style.display='';
+    refreshTeacher();
+    if(pin==='1234') log('⚠ PIN이 기본값(1234)입니다. 변경하십시오.');
+  } else document.getElementById('tcPinMsg').innerHTML='<span class="tag bad">PIN이 다릅니다</span>';
+});
+document.getElementById('tcPinChange').addEventListener('click',()=>{
+  const v=prompt('새 PIN(숫자 4자리 이상)'); if(!v) return;
+  if(!/^\d{4,}$/.test(v)){ alert('숫자 4자리 이상으로 입력하십시오.'); return; }
+  save(K.pin,v); log('PIN을 변경했습니다.');
+});
+document.getElementById('tcBack').addEventListener('click',()=>{ refreshLogin(); showScreen('scLogin'); });
+
+function refreshTeacher(){
+  // 학급/회차 선택
+  const cls=Object.keys(ROSTER.classes).sort();
+  const lk=lockState();
+  document.getElementById('tcClass').innerHTML=cls.length?cls.map(c=>`<option>${c}</option>`).join('')
+    :'<option value="">명부를 먼저 저장하십시오</option>';
+  if(lk&&cls.includes(lk.cls)) document.getElementById('tcClass').value=lk.cls;
+  document.getElementById('tcSession').innerHTML=Array.from({length:12},(_,i)=>i+1)
+    .map(n=>`<option value="${n}"${lk&&lk.session===n?' selected':''}>${n}회차</option>`).join('');
+  document.getElementById('tcLockState').innerHTML= lk
+    ? `<span class="tag ok">고정됨</span> <b>${lk.cls} · ${lk.session}회차</b> — 학생은 번호만 입력하면 됩니다.`
+    : '<span class="tag mid">미설정</span> 학생이 입장할 수 없습니다.';
+  // 이번 수업 진행 현황 — 교사가 누가 남았는지 바로 볼 수 있어야 합니다
+  const pg=document.getElementById('tcProgress');
+  if(lk){
+    const list=ROSTER.students.filter(st=>st.cls===lk.cls).sort((a,b)=>a.num-b.num);
+    const doneMap={};
+    ROUNDS.filter(r=>r.cls===lk.cls&&r.session===lk.session).forEach(r=>doneMap[r.num]=r);
+    const done=list.filter(st=>doneMap[st.num]).length;
+    pg.innerHTML=`<p class="note" style="margin:0 0 8px"><b>${lk.cls} · ${lk.session}회차</b> — `+
+      `완료 <b>${done}/${list.length}</b>명</p>`+
+      `<table><thead><tr><th>번호</th><th>이름</th><th class="n">발수</th><th class="n">평균</th><th>상태</th></tr></thead><tbody>`+
+      list.map(st=>{ const r=doneMap[st.num];
+        return `<tr><td>${st.num}</td><td>${st.nick}</td>`+
+          `<td class="n">${r?r.n:'–'}</td><td class="n">${r?r.avg.toFixed(1):'–'}</td>`+
+          `<td>${r?(r.incomplete?'<span class="tag mid">미완료</span>':'<span class="tag ok">완료</span>')
+                 +(r.attempt>1?` <span class="tag">재측정 ${r.attempt}</span>`:'')
+               :'<span class="tag">대기</span>'}</td></tr>`;
+      }).join('')+`</tbody></table>`;
+  } else pg.innerHTML='<p class="note" style="margin:0">수업을 먼저 고정하십시오.</p>';
+
+  // 집단 배정표
+  document.getElementById('tcGroups').innerHTML=cls.map(c=>{
+    const g=ROSTER.classes[c], n=ROUNDS.filter(r=>r.cls===c).length;
+    return `<tr><td>${c}</td><td><select data-cls="${c}" class="gsel" ${g.locked?'disabled':''}>
+      <option value="" ${!g.group?'selected':''}>미지정</option>
+      <option value="E" ${g.group==='E'?'selected':''}>실험</option>
+      <option value="C" ${g.group==='C'?'selected':''}>비교</option></select></td>
+      <td class="n">${n}</td><td>${g.locked?'<span class="tag bad">🔒 잠김</span>':'<span class="tag">변경 가능</span>'}</td></tr>`;
+  }).join('')||'<tr><td colspan="4" class="muted">명부가 없습니다</td></tr>';
+  document.querySelectorAll('.gsel').forEach(s=>s.addEventListener('change',()=>{
+    ROSTER.classes[s.dataset.cls].group=s.value;
+    ROSTER.classes[s.dataset.cls].assigned_at=new Date().toISOString();
+    save(K.roster,ROSTER); log(`${s.dataset.cls} 집단을 ${s.value||'미지정'}으로 설정`); refreshTeacher();
+  }));
+  // 표적/검출
+  const cfgMap=[['tcPreset','preset'],['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],
+                ['tcPerRound','perRound'],['tcRed','red'],['tcLum','lum']];
+  cfgMap.forEach(([id,k])=>{ const el=document.getElementById(id); el.value=CFG[k]; });
+  // 데이터
+  document.getElementById('tcNStu').textContent=ROSTER.students.length;
+  document.getElementById('tcNRound').textContent=ROUNDS.length;
+  document.getElementById('tcNShot').textContent=SHOTS.length;
+  let bytes=0; try{ for(const k of Object.values(K)) bytes+=(localStorage.getItem(k)||'').length; }catch(e){}
+  const kb=bytes/1024;
+  const sz=document.getElementById('tcSize');
+  sz.textContent=kb.toFixed(0)+' KB';
+  sz.style.color = kb>3000?'var(--shot)':(kb>1500?'var(--warn)':'');
+  if(kb>3000) log('⚠ 저장공간이 3MB를 넘었습니다. CSV로 내보낸 뒤 정리하십시오.');
+  document.getElementById('tcRoster').value=ROSTER.students.map(s=>
+    `${s.cls},${s.num},${s.nick},${s.ov}`).join('\n');
+  updReady();
+}
+document.getElementById('tcPreset').addEventListener('change',ev=>{
+  const p=PRESETS[ev.target.value];
+  CFG.preset=ev.target.value;
+  if(p){ CFG.mode=p.mode; CFG.dia=p.dia; CFG.rings=p.rings; if(p.calib!=null) CFG.calib=p.calib; }
+  saveCfg(); if(E.quad) buildTransform(); refreshTeacher();
+  if(p&&p.calib==null) alert('LaserHIT 표적은 네 귀퉁이 25M 마커 사이 거리를 자로 재어\n[캘리브레이션 기준]에 직접 입력하셔야 합니다.');
+});
+[['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],['tcPerRound','perRound'],
+ ['tcRed','red'],['tcLum','lum']].forEach(([id,k])=>{
+  document.getElementById(id).addEventListener('change',ev=>{
+    const v=parseFloat(ev.target.value);
+    if(isFinite(v)&&v>0){ CFG[k]=v; CFG.preset='custom'; saveCfg();
+      if(E.quad&&(k==='calib'||k==='dia'||k==='rings')) buildTransform(); updReady(); }
+  });
+});
+document.getElementById('tcLock').addEventListener('click',()=>{
+  const c=document.getElementById('tcClass').value;
+  if(!c){ alert('명부를 먼저 저장하십시오.'); return; }
+  if(!ROSTER.classes[c].group){ alert(`${c}의 집단이 지정되지 않았습니다.\n[집단 배정]에서 먼저 지정하십시오.`); return; }
+  save(K.lock,{cls:c,session:parseInt(document.getElementById('tcSession').value,10),at:Date.now()});
+  log(`수업 고정: ${c} · ${document.getElementById('tcSession').value}회차`);
+  refreshTeacher();
+});
+document.getElementById('tcUnlock').addEventListener('click',()=>{
+  localStorage.removeItem(K.lock); log('수업 고정 해제'); refreshTeacher();
+});
+document.getElementById('tcCam').addEventListener('click',startCamera);
+document.getElementById('tcCalib').addEventListener('click',beginCalib);
+document.getElementById('tcBg').addEventListener('click',beginBg);
+document.getElementById('tcTest').addEventListener('click',toggleTest);
+document.getElementById('tcTestClear').addEventListener('click',()=>{ TEST.shots=[]; updTestInfo(); });
+function updReady(){
+  const el=document.getElementById('tcReady'); if(!el) return;
+  const ok=!!(E.bg&&E.bg.ready);
+  const q=document.getElementById('tcQuality');
+  el.innerHTML= !E.vw ? '<span class="tag mid">카메라 꺼짐</span>'
+    : !E.quad ? '<span class="tag mid">표적 미지정</span> [표적 맞추기]를 누르십시오.'
+    : !ok ? '<span class="tag mid">배경 미학습</span> [배경 학습]을 누르십시오.'
+    : `<span class="tag ok">준비 완료</span> 학생이 사격할 수 있습니다. · ${E.mmPerPx.toFixed(2)} mm/px`;
+  const tb=document.getElementById('tcTest'); if(tb) tb.disabled=!ok;
+  refreshFireState();
+  if(q&&E.quad){
+    const rm=ringMm(), dispW=video.getBoundingClientRect().width||1;
+    const err=Math.hypot(0.3*E.mmPerPx, Math.max(0.35,0.5*(E.vw/dispW)*FINE_GAIN)*E.mmPerPx);
+    const ratio=err/rm;
+    const tag=ratio<0.10?'<span class="tag ok">우수</span>':ratio<0.25?'<span class="tag mid">양호</span>':'<span class="tag bad">부족</span>';
+    q.innerHTML=`${tag} 1링 ${rm.toFixed(1)}mm (${(rm/E.mmPerPx).toFixed(1)}px) · 예상 좌표오차 ±${err.toFixed(2)}mm (${ratio.toFixed(2)}링)`;
   }
 }
+document.getElementById('tcRosterSave').addEventListener('click',()=>{
+  const r=parseRoster(document.getElementById('tcRoster').value);
+  if(!r.students.length){ document.getElementById('tcRosterMsg').innerHTML='<span class="tag bad">읽을 수 있는 줄이 없습니다</span>'; return; }
+  // 기존 잠금·배정 정보는 유지
+  Object.keys(r.classes).forEach(c=>{
+    if(ROSTER.classes[c]){ r.classes[c].locked=ROSTER.classes[c].locked;
+      r.classes[c].assigned_at=ROSTER.classes[c].assigned_at;
+      if(ROSTER.classes[c].locked) r.classes[c].group=ROSTER.classes[c].group; }
+  });
+  ROSTER=r; save(K.roster,ROSTER); refreshLocks();
+  document.getElementById('tcRosterMsg').innerHTML=
+    `<span class="tag ok">저장</span> 학생 ${r.students.length}명 · 학급 ${Object.keys(r.classes).length}개`;
+  log(`명부 저장 · ${r.students.length}명`); refreshTeacher();
+});
+document.getElementById('tcRosterDemo').addEventListener('click',()=>{
+  const L=[];
+  [['2-4','E',14],['2-5','E',14],['2-6','C',13],['2-7','C',14]].forEach(([c,g,n])=>{
+    for(let i=1;i<=n;i++) L.push(`${c},${i},${c.replace('-','')}_${i},${g}`);
+  });
+  document.getElementById('tcRoster').value=L.join('\n');
+});
 
-/* ===================== 13. 신호 강도 측정 ===================== */
-/* 배경 모델에서 '표적의 밝은 영역'이 몇 계조로 찍히는지 (상위 20% 평균) */
-function bgBrightness(){
-  if(!S.bg||!S.bg.ready) return 0;
-  const n=S.bg.N, step=Math.max(1,Math.floor(n/8000));
-  const v=[];
-  for(let i=0;i<n;i+=step) v.push(S.bg.mR[i]*0.4+S.bg.mG[i]*0.4+S.bg.mB[i]*0.2);
-  v.sort((a,b)=>b-a);
-  const k=Math.max(1,Math.floor(v.length*0.2));
-  let s=0; for(let i=0;i<k;i++) s+=v[i];
-  return s/k;
-}
-
-function updateProbe(){
-  document.getElementById('pRed').textContent=S.probe.red.toFixed(0);
-  document.getElementById('pLum').textContent=S.probe.lum.toFixed(0);
-  document.getElementById('pArea').textContent=S.probe.area||'–';
-  const bb=bgBrightness();
-  const bbEl=document.getElementById('pBg');
-  bbEl.textContent=bb.toFixed(0);
-  bbEl.style.color = bb>=238 ? 'var(--shot)' : (bb<=90 ? 'var(--warn)' : '');
-  const r=S.probe.red, l=S.probe.lum;
-  const adv=document.getElementById('probeAdvice');
-  if(r<10 && l<20){
-    adv.innerHTML='<span class="tag bad">신호 없음</span> 레이저가 표적을 비추고 있는지, '+
-      '배경 학습 이후 카메라가 움직이지 않았는지 확인하십시오.';
-  }else{
-    const weak = r<25 && l<45;
-    const rt=Math.max(5, Math.round(r*(weak?0.5:0.45)));
-    const lt=Math.max(12, Math.round(l*0.5));
-    let warn='';
-    if(bb>=238) warn=`<br><span class="tag bad">과노출</span> 바탕이 ${bb.toFixed(0)}으로 상한(255)에 붙어 `+
-      `레이저가 올라갈 여유가 ${(255-bb).toFixed(0)}계조뿐입니다. 조명을 낮추거나, `+
-      `'표적지 인쇄'에서 <b>회색 바탕</b>으로 다시 인쇄하십시오.`;
-    else if(bb<=90) warn=`<br><span class="tag mid">어두움</span> 바탕이 ${bb.toFixed(0)}으로 어둡습니다. `+
-      `조도를 높이면 검출이 안정됩니다.`;
-    adv.innerHTML=`<span class="tag ${weak?'mid':'ok'}">${weak?'신호 약함':'신호 충분'}</span> `+
-      `권장 임계값 — 적색 <b>${rt}</b>, 밝기 <b>${lt}</b> `+
-      `<button class="sm ghost" id="bApplyProbe" style="margin-left:6px">적용</button>${warn}`;
-    const btn=document.getElementById('bApplyProbe');
-    if(btn) btn.onclick=()=>{
-      CFG.red=rt; CFG.lum=lt; applyCfgToUI();
-      log(`임계값 적용: 적색 ${rt}, 밝기 ${lt}`);
-    };
-  }
-}
-
-/* ===================== 14. CSV ===================== */
-function exportCsv(){
-  const head=['no','x_mm','y_mm','r_mm','score','score_decimal','is_miss',
-              'frames','peak_signal','area_px','duration_ms','target_dia_mm','calib_mm','calib_mode','mm_per_px','timestamp'];
-  const iso=new Date().toISOString();
-  const rows=S.shots.map((s,i)=>[
-    i+1, s.xmm.toFixed(2), s.ymm.toFixed(2), s.r.toFixed(2),
-    s.score, s.dec.toFixed(2), s.miss?1:0,
-    s.frames, s.peak, s.area, s.dur,
-    CFG.dia, CFG.calib, CFG.mode, S.mmPerPx.toFixed(4), iso
-  ].join(','));
-  const csv='﻿'+head.join(',')+'\n'+rows.join('\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='shotline_'+iso.slice(0,19).replace(/[:T]/g,'')+'.csv';
-  a.click();
+/* ---------- CSV ---------- */
+function dl(name,text){
+  const b=new Blob(['﻿'+text],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=name; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),3000);
-  log('CSV를 저장했습니다.');
 }
-
-/* ===================== 15. 표적지 인쇄 ===================== */
-/*  바탕색에 대하여
-    일반 백지로도 잘 동작합니다. 다만 조명이 너무 밝아 표적이 카메라에
-    거의 순백(240 이상)으로 찍히면, 레이저가 올라갈 여유가 10~15계조밖에
-    남지 않아 조명이 조금만 흔들려도 오검출이 생깁니다.
-    그럴 때만 회색 바탕 옵션을 쓰십시오. [신호 강도 측정]이 바탕 밝기를
-    알려주므로 필요 여부를 수치로 판단하실 수 있습니다.                  */
-function buildTargetSVG(D,N,gray){
-  const R=D/2, step=R/N;
-  const field = gray ? '#B4B4B4' : '#FFFFFF';
-  const blackK = Math.round(N*0.4);
-  let rings='';
-  for(let k=1;k<=N;k++){
-    const rr=step*k;
-    rings+=`<circle cx="0" cy="0" r="${rr}" fill="none" stroke="${k<=blackK?'#fff':'#111'}" stroke-width="0.35"/>`;
-  }
-  let nums='';
-  for(let k=1;k<N;k++){
-    const rr=step*k+step/2, v=N-k;
-    nums+=`<text x="0" y="${rr+1.6}" font-size="4.2" text-anchor="middle"
-       fill="${rr<step*blackK?'#fff':'#111'}" font-family="Helvetica">${v}</text>`;
-  }
-  const marks=[[-R,-R],[R,-R],[R,R],[-R,R]].map(([x,y])=>{
-    const sx=x<0?1:-1, sy=y<0?1:-1;
-    return `<path d="M${x} ${y+sy*7}V${y}H${x+sx*7}" stroke="#111" stroke-width="0.9" fill="none"/>`;
-  }).join('');
-  return `<svg width="${D+18}mm" height="${D+18}mm" viewBox="${-(D/2+9)} ${-(D/2+9)} ${D+18} ${D+18}">
-  <rect x="${-R}" y="${-R}" width="${D}" height="${D}" fill="${field}" stroke="#111" stroke-width="0.6"/>
-  <circle cx="0" cy="0" r="${step*blackK}" fill="#111"/>
-  ${rings}${nums}
-  <line x1="-3" y1="0" x2="3" y2="0" stroke="#fff" stroke-width="0.4"/>
-  <line x1="0" y1="-3" x2="0" y2="3" stroke="#fff" stroke-width="0.4"/>
-  ${marks}
-</svg>`;
+function toCsv(rows,cols){
+  return cols.join(',')+'\n'+rows.map(r=>cols.map(c=>{
+    const v=r[c]; return v===undefined||v===null?'':String(v).replace(/,/g,' ');
+  }).join(',')).join('\n');
 }
+const stamp=()=>new Date().toISOString().slice(0,19).replace(/[:T-]/g,'');
+document.getElementById('tcCsvShot').addEventListener('click',()=>{
+  dl(`shotline_shots_${stamp()}.csv`, toCsv(SHOTS,
+    ['code','cls','num','group','session','shot_no','x_mm','y_mm','r_mm','score','dec','is_miss','frames','peak','ts']));
+  log('탄착 CSV 저장');
+});
+document.getElementById('tcCsvRound').addEventListener('click',()=>{
+  dl(`shotline_rounds_${stamp()}.csv`, toCsv(ROUNDS,
+    ['code','cls','num','group','session','n','attempt','incomplete','avg','dec','grp_mm','mpi_dev_mm','mpi_clock','hits_max','miss',
+     'coach_shown','coach_dwell_ms','diag_code','drill_ids','drill_done','class_mismatch',
+     'target_dia','rings','mm_per_px','ts']));
+  log('회차 CSV 저장');
+});
+document.getElementById('tcBackup').addEventListener('click',()=>{
+  const b=new Blob([JSON.stringify({roster:ROSTER,rounds:ROUNDS,shots:SHOTS,cfg:CFG},null,1)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+  a.download=`shotline_backup_${stamp()}.json`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000); log('백업 저장');
+});
+/* 태블릿이 여러 대면 학생의 회차 기록이 흩어집니다.
+   백업을 불러와 합치면 기록·사전사후 비교가 온전해집니다. (같은 학생·회차는 새 쪽을 채택) */
+document.getElementById('tcRestore').addEventListener('click',()=>document.getElementById('tcFile').click());
+document.getElementById('tcFile').addEventListener('change',ev=>{
+  const f=ev.target.files&&ev.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const j=JSON.parse(rd.result);
+      let addR=0,addS=0;
+      (j.rounds||[]).forEach(r=>{
+        const i=ROUNDS.findIndex(x=>x.code===r.code&&x.session===r.session);
+        if(i>=0){ if((r.ts||0)>(ROUNDS[i].ts||0)){ ROUNDS[i]=r; addR++; } }
+        else { ROUNDS.push(r); addR++; }
+      });
+      const key=x=>`${x.code}|${x.session}|${x.shot_no}`;
+      const have=new Set(SHOTS.map(key));
+      (j.shots||[]).forEach(x=>{ if(!have.has(key(x))){ SHOTS.push(x); have.add(key(x)); addS++; } });
+      if(j.roster&&j.roster.students&&!ROSTER.students.length){ ROSTER=j.roster; save(K.roster,ROSTER); }
+      save(K.rounds,ROUNDS); save(K.shots,SHOTS); refreshLocks();
+      log(`백업 합치기: 회차 ${addR}건, 탄착 ${addS}행 반영`);
+      alert(`합치기 완료\n회차 ${addR}건 · 탄착 ${addS}행`);
+      refreshTeacher();
+    }catch(e){ alert('불러오기 실패: '+e.message); }
+  };
+  rd.readAsText(f); ev.target.value='';
+});
 
-/*  ISSF 25m 정밀권총 / 50m 권총 표적 규격 (ISSF 기술규칙 6.3.4.5)
-    링 지름 : 10점 50mm → 1점 500mm (지름 50mm 등간격, 반지름 25mm 등간격)
-    흑심    : 200mm (7~10점 구간)
-    LaserHIT 표적이 바로 이 규격의 축소본입니다. 아래 생성기로 같은 규격을
-    직접 만들면 저작권 문제 없이 논문 부록에 실을 수 있습니다.             */
-const ISSF25 = { dia:500, rings:10, blackDia:200 };
+document.getElementById('tcWipe').addEventListener('click',()=>{
+  if(!confirm('탄착·회차 데이터를 모두 삭제합니다.\nCSV를 먼저 내려받으셨습니까?')) return;
+  if(!confirm('되돌릴 수 없습니다. 정말 삭제하시겠습니까?')) return;
+  SHOTS=[];ROUNDS=[]; save(K.shots,SHOTS); save(K.rounds,ROUNDS);
+  log('데이터 전체 삭제'); refreshTeacher();
+});
 
-function issfSVG(scale){
-  const D=ISSF25.dia/scale, N=ISSF25.rings, R=D/2, step=R/N;
-  const blackR=(ISSF25.blackDia/scale)/2;
-  let rings='';
-  for(let k=1;k<=N;k++){
-    const rr=step*k;
-    rings+=`<circle cx="0" cy="0" r="${rr.toFixed(3)}" fill="none" stroke="${rr<=blackR+0.01?'#fff':'#111'}" stroke-width="${(0.35/scale*4).toFixed(3)}"/>`;
-  }
-  rings+=`<circle cx="0" cy="0" r="${(12.5/scale).toFixed(3)}" fill="none" stroke="#fff" stroke-width="${(0.3/scale*4).toFixed(3)}"/>`; // 이너텐 25mm
-  let nums='';
-  const fs=(4.2/scale*4);
-  for(let k=1;k<N;k++){
-    const rr=step*k+step/2, v=N-k;
-    nums+=`<text x="0" y="${(rr+fs*0.38).toFixed(2)}" font-size="${fs.toFixed(2)}" text-anchor="middle"
-       fill="${rr<blackR?'#fff':'#111'}" font-family="Helvetica">${v}</text>`;
-  }
-  // 캘리브레이션용 ㄱ자 모서리 표시 — 한 변이 정확히 D인 정사각형
-  const m=(7/scale*4), sw=(0.9/scale*4);
-  const marks=[[-R,-R],[R,-R],[R,R],[-R,R]].map(([x,y])=>{
-    const sx=x<0?1:-1, sy=y<0?1:-1;
-    return `<path d="M${x} ${(y+sy*m).toFixed(2)}V${y}H${(x+sx*m).toFixed(2)}" stroke="#111" stroke-width="${sw.toFixed(2)}" fill="none"/>`;
-  }).join('');
-  const pad=D*0.04;
-  return {D, svg:`<svg width="${(D+pad*2).toFixed(1)}mm" height="${(D+pad*2).toFixed(1)}mm"
-   viewBox="${-(R+pad)} ${-(R+pad)} ${D+pad*2} ${D+pad*2}">
-  <rect x="${-R}" y="${-R}" width="${D}" height="${D}" fill="#FFFFFF" stroke="#111" stroke-width="${sw.toFixed(2)}"/>
-  <circle cx="0" cy="0" r="${blackR.toFixed(3)}" fill="#111"/>
-  ${rings}${nums}
-  <line x1="${-D*0.012}" y1="0" x2="${D*0.012}" y2="0" stroke="#fff" stroke-width="${(sw*0.5).toFixed(2)}"/>
-  <line x1="0" y1="${-D*0.012}" x2="0" y2="${D*0.012}" stroke="#fff" stroke-width="${(sw*0.5).toFixed(2)}"/>
-  ${marks}
-</svg>`};
-}
-
-function printISSF(){
-  const opts=[[4,'1:4 · A4 (LaserHIT 원본과 동일)'],[3,'1:3 · A4 확대'],[2,'1:2 · A3 (권장)'],[1.6,'1:1.6 · A2']];
-  const built=opts.map(([s,l])=>({s,l,...issfSVG(s)}));
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>ISSF 25m 정밀권총 표적</title>
-<style>
-@page{margin:5mm}
-body{margin:0;font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;text-align:center}
-.bar{background:#EDEFF2;padding:12px}
-.bar button{font-size:15px;padding:10px 18px;margin:0 6px;border:0;border-radius:8px;background:#123D6B;color:#fff;font-weight:600}
-.bar select{font-size:14px;padding:8px}
-.hdr{font-size:9pt;color:#555;margin:2mm 0 3mm}
-svg{display:block;margin:0 auto}
-.ftr{font-size:7.5pt;color:#777;margin-top:3mm;line-height:1.6}
-@media print{.bar{display:none}}
-</style></head><body>
-<div class="bar">
-  <select id="sc" onchange="sw()">${built.map((b,i)=>`<option value="${i}"${b.s===2?' selected':''}>${b.l} — 지름 ${b.D.toFixed(1)}mm</option>`).join('')}</select>
-  <button onclick="window.print()">인쇄</button>
-  <span style="font-size:12px;color:#555">배율 <b>100%</b>, '페이지에 맞춤' 해제</span>
-</div>
-<div class="hdr" id="hd"></div>
-<div id="t"></div>
-<div class="ftr">
-  ISSF 기술규칙 6.3.4.5 · 25m 정밀권총 / 50m 권총 표적 규격<br>
-  링 지름 50~500mm(등간격) · 흑심 200mm(7~10점) · 이너텐 25mm — 위 배율로 축소<br>
-  <b>캘리브레이션</b>: 바깥 정사각 테두리의 네 모서리(ㄱ자 표시)를 찍고, 한 변과 링 지름에 같은 값을 넣으십시오.<br>
-  인쇄 후 반드시 자로 한 변을 재어 확인하십시오. 프린터마다 실제 출력 크기가 다릅니다.
-</div>
-<script>
-var A=${JSON.stringify(built.map(b=>b.svg))}, L=${JSON.stringify(built.map(b=>b.l+' — 한 변 및 링 지름 '+b.D.toFixed(1)+'mm'))};
-function sw(){var i=document.getElementById('sc').value;
-  document.getElementById('t').innerHTML=A[i];
-  document.getElementById('hd').textContent='ISSF 25m 정밀권총 표적 · '+L[i];}
-sw();
-<\/script>
-</body></html>`;
-  const w=window.open('','_blank');
-  if(!w){ alert('팝업이 차단되었습니다. 팝업을 허용해 주십시오.'); return; }
-  w.document.write(html); w.document.close();
-}
-
-function printTarget(){
-  const D=CFG.dia, N=CFG.rings;
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>샷라인 표적지 ${D}mm</title>
-<style>
-@page{margin:5mm}
-body{margin:0;font-family:-apple-system,'Apple SD Gothic Neo',sans-serif;text-align:center}
-.hdr{font-size:9pt;color:#555;margin:2mm 0 3mm}
-svg{display:block;margin:0 auto}
-.ftr{font-size:7.5pt;color:#777;margin-top:3mm;line-height:1.6}
-.bar{background:#EDEFF2;padding:12px;margin-bottom:10px}
-.bar button{font-size:15px;padding:10px 18px;margin:0 6px;border:0;border-radius:8px;
-  background:#123D6B;color:#fff;font-weight:600}
-.bar label{font-size:13px;margin:0 10px}
-@media print{.bar{display:none}}
-</style></head><body>
-<div class="bar noprint">
-  <button onclick="window.print()">인쇄</button>
-  <label><input type="checkbox" id="g" onchange="sw()"> 회색 바탕 (과노출일 때만)</label>
-  <span style="font-size:12px;color:#555">인쇄 배율을 반드시 <b>100%</b>로 두십시오</span>
-</div>
-<div class="hdr">샷라인 표적지 · 한 변 ${D}mm · ${N}링</div>
-<div id="t">${buildTargetSVG(D,N,false)}</div>
-<div class="ftr">
-  캘리브레이션 시 <b>바깥 정사각형의 네 모서리</b>를 지정하십시오 (모서리에 ㄱ자 표시가 있습니다).<br>
-  인쇄 후 자로 한 변을 재어 <b>${D}mm</b>인지 확인하십시오. 다르면 앱의 '표적 한 변' 값을 실측값으로 고치십시오.<br>
-  일반 백지로 충분합니다. 앱의 [신호 강도 측정]에서 <b>바탕 밝기가 238 이상</b>으로 나올 때만 회색 바탕을 쓰십시오.
-</div>
-<script>
-var A=${JSON.stringify(buildTargetSVG(D,N,true))}, B=${JSON.stringify(buildTargetSVG(D,N,false))};
-function sw(){ document.getElementById('t').innerHTML = document.getElementById('g').checked ? A : B; }
-<\/script>
-</body></html>`;
-  const w=window.open('','_blank');
-  if(!w){ alert('팝업이 차단되었습니다. 팝업을 허용해 주십시오.'); return; }
-  w.document.write(html); w.document.close();
-}
-
-/* ===================== 16. 버튼 연결 ===================== */
-document.getElementById('bStart').onclick=startCamera;
-document.getElementById('bCalib').onclick=beginCalib;
-document.getElementById('bBg').onclick=beginBgLearn;
-document.getElementById('bTarget').onclick=printTarget;
-document.getElementById('bIssf').onclick=printISSF;
-document.getElementById('bCsv').onclick=exportCsv;
-document.getElementById('bSave').onclick=saveCfg;
-document.getElementById('bDefaults').onclick=()=>{
-  Object.assign(CFG, JSON.parse(JSON.stringify(CFG_DEFAULT)));
-  applyCfgToUI(); log('기본값으로 되돌렸습니다.');
-};
-document.getElementById('bReset').onclick=()=>{
-  S.shots=[]; S.tracks=[]; S.nextId=1;
-  updateTable(); updateStats(); log('탄착 기록을 지웠습니다.');
-};
-const bRun=document.getElementById('bRun');
-bRun.onclick=()=>{
-  if(S.mode==='run'){
-    S.mode='idle'; bRun.textContent='검출 시작'; bRun.className='';
-    badge.textContent='정지됨';
-    log('검출 정지');
-  }else{
-    S.mode='run'; bRun.textContent='검출 정지'; bRun.className='danger';
-    badge.textContent='검출 중';
-    document.getElementById('probeBox').style.display='none';
-    log('검출 시작 — 사격하십시오.');
-  }
-};
-const bProbe=document.getElementById('bProbe');
-bProbe.onclick=()=>{
-  if(S.mode==='probe'){
-    S.mode='idle'; bProbe.textContent='신호 강도 측정'; bProbe.className='ghost sm';
-    badge.textContent='측정 종료';
-  }else{
-    if(!S.bg||!S.bg.ready){ alert('먼저 [배경 학습]을 하십시오.'); return; }
-    S.probe={red:0,lum:0,bg:0,area:0};
-    S.mode='probe'; bProbe.textContent='측정 종료'; bProbe.className='warn sm';
-    document.getElementById('probeBox').style.display='block';
-    badge.textContent='표적의 검은 부분과 흰 부분에\n각각 레이저를 비추십시오';
-    bRun.textContent='검출 시작'; bRun.className='';
-    log('신호 강도 측정 시작');
-  }
-};
-
-/* ===================== 17. 시작 ===================== */
-loadCfg();
-bindCfg();
-applyCfgToUI();
-log('준비 완료. [카메라 시작]을 누르십시오.');
-if(location.protocol!=='https:' && location.hostname!=='localhost' && location.protocol!=='file:'){
+/* ===================== 시작 ===================== */
+buildPad(); refreshLogin(); refreshLocks();
+log('샷라인 앱 준비 완료');
+if(location.protocol!=='https:'&&location.hostname!=='localhost')
   log('⚠ HTTPS가 아닙니다. 카메라 권한이 거부될 수 있습니다.');
-}
+/* 테스트용 노출 — 실제 사용에는 영향이 없습니다.
+   _testSetup/_testShot 은 카메라 없이 사격 흐름(채점·저장·코칭)을 검증하기 위한 것으로,
+   실제 검출 경로(onShot 이후)를 그대로 통과시킵니다. */
+window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,ringMm,goTab,
+  get roster(){return ROSTER;}, get rounds(){return ROUNDS;}, get shots(){return SHOTS;},
+  _testSetup(){
+    E.vw=1920; E.vh=1080;
+    E.quad=[{x:800,y:400},{x:1100,y:400},{x:1100,y:700},{x:800,y:700}];
+    if(!buildTransform()) return null;
+    E.bg={ready:true};
+    updReady(); refreshFireState();
+    return {mmPerPx:E.mmPerPx, roi:E.roi};
+  },
+  _testShot(xmm,ymm){
+    if(!E.Hinv||!E.roi) return false;
+    const p=applyH(E.H,xmm,ymm);
+    onShot({x:p.x-E.roi.x, y:p.y-E.roi.y, frames:5, peak:2, area:40});
+    return true;
+  }};
 </script>
 </body>
 </html>
