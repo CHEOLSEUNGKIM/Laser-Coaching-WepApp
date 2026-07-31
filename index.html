@@ -104,6 +104,9 @@ td.n{font-family:var(--mono);text-align:right}
 #overlay{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none}
 .badge{position:absolute;left:8px;top:8px;z-index:4;font-family:var(--mono);font-size:11px;
   color:#fff;background:rgba(0,0,0,.62);padding:4px 8px;border-radius:5px;line-height:1.45;white-space:pre}
+/* ※ pointer-events:none — 이게 없으면 배지·안내문이 영상 위의 탭을 가로채,
+      표적 모서리나 검은 원이 그 아래에 있을 때 캘리브레이션이 조용히 실패합니다. */
+.badge,.hint,#loupe{pointer-events:none}
 .hint{position:absolute;left:8px;right:8px;bottom:8px;z-index:4;font-size:13px;color:#fff;
   background:rgba(0,0,0,.72);padding:7px 12px;border-radius:8px;text-align:center;line-height:1.5}
 .hint em{display:block;font-style:normal;font-size:11.5px;opacity:.8;margin-top:3px;line-height:1.45}
@@ -346,15 +349,58 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
       <div id="stageHostT" style="margin:10px 0"></div>
       <div class="row" style="margin-top:9px">
         <button id="tcCam">카메라 시작</button>
-        <button class="ghost" id="tcCalib" disabled>표적 맞추기</button>
+        <button class="ghost" id="tcAuto" disabled>표적 자동 맞추기</button>
         <button class="ghost" id="tcBg" disabled>배경 학습</button>
       </div>
-      <div class="row" style="margin-top:7px">
-        <button class="warn" id="tcTest" disabled>테스트 사격</button>
-        <button class="ghost sm" id="tcTestClear" style="flex:0 1 30%">지우기</button>
-      </div>
       <p class="note" id="tcReady"></p>
-      <p class="note" id="tcTestInfo"></p>
+
+      <div id="tcFitBox" style="display:none;border:1px solid var(--line);border-radius:9px;padding:10px;margin-top:9px">
+        <p class="note" style="margin:0 0 8px"><b>인쇄된 링과 화면의 초록 링이 겹치는지 확인하십시오.</b>
+        어긋나면 아래로 미세 조정하십시오.</p>
+        <div class="row" style="gap:6px">
+          <button class="ghost sm" data-fit="s-">크기 −</button>
+          <button class="ghost sm" data-fit="s+">크기 +</button>
+          <button class="ghost sm" data-fit="r-">회전 −</button>
+          <button class="ghost sm" data-fit="r+">회전 +</button>
+          <button class="ghost sm" data-fit="auto">링에 맞추기</button>
+          <button class="ghost sm" data-fit="reset">되돌리기</button>
+        </div>
+        <p class="note" id="tcFitInfo" style="margin-top:7px"></p>
+      </div>
+
+      <details style="margin-top:9px"><summary>수동으로 맞추기 (네 모서리 찍기)</summary>
+        <p class="note">인쇄물에 <b>정확한 치수를 아는 정사각형 테두리</b>가 있을 때만 쓰십시오.
+        네모의 한 변과 채점 링 지름이 다르면 아래 두 값을 각각 실측해 넣어야 합니다.</p>
+        <button class="ghost sm" id="tcCalib" disabled>네 모서리 찍기 시작</button>
+      </details>
+
+      <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
+        <h3 style="font-size:14px;margin:0 0 6px">레이저가 안 잡힐 때 — 신호 측정</h3>
+        <p class="note" style="margin:0 0 8px">임계값을 감으로 만지지 마십시오.
+        <b>신호 측정</b>을 켜고 표적에 레이저를 쏘면, 카메라가 실제로 무엇을 보고 있는지 숫자로 나옵니다.</p>
+        <div class="row">
+          <button class="warn" id="tcProbe" disabled>신호 측정 시작</button>
+          <button class="ghost sm" id="tcProbeReset" style="flex:0 1 28%">초기화</button>
+        </div>
+        <div id="tcProbeBox" style="display:none;margin-top:9px">
+          <dl class="stats q4">
+            <div><dt>바탕 밝기</dt><dd id="pvBg" style="font-size:16px">–</dd></div>
+            <div><dt>적색 최대</dt><dd id="pvRed" style="font-size:16px">–</dd></div>
+            <div><dt>밝기 최대</dt><dd id="pvLum" style="font-size:16px">–</dd></div>
+            <div><dt>검출</dt><dd id="pvHit" style="font-size:16px">–</dd></div>
+          </dl>
+          <p class="note" id="pvAdvice"></p>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
+        <h3 style="font-size:14px;margin:0 0 6px">테스트 사격</h3>
+        <div class="row">
+          <button class="warn" id="tcTest" disabled>테스트 사격</button>
+          <button class="ghost sm" id="tcTestClear" style="flex:0 1 28%">지우기</button>
+        </div>
+        <p class="note" id="tcTestInfo"></p>
+      </div>
       <details>
         <summary>표적 규격 · 검출 파라미터</summary>
         <div class="row" style="margin-top:6px">
@@ -370,6 +416,8 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
           <div style="flex:1 1 45%"><label class="fl">캘리브레이션 기준(mm)</label><input type="number" id="tcCalibMm" step="0.5"></div>
           <div style="flex:1 1 45%"><label class="fl">채점 링 지름(mm)</label><input type="number" id="tcDia" step="0.5"></div>
           <div style="flex:1 1 45%"><label class="fl">링 수</label><input type="number" id="tcRings" step="1"></div>
+          <div style="flex:1 1 45%"><label class="fl">흑심 비율<i></i></label><input type="number" id="tcBlack" step="0.01" min="0.1" max="0.9"></div>
+          <div style="flex:1 1 45%"><label class="fl">최소 면적(px)</label><input type="number" id="tcMinA" step="1" min="1"></div>
           <div style="flex:1 1 45%"><label class="fl">회차당 발수</label><input type="number" id="tcPerRound" step="1"></div>
           <div style="flex:1 1 45%"><label class="fl">적색 임계값</label><input type="number" id="tcRed" step="1"></div>
           <div style="flex:1 1 45%"><label class="fl">밝기 임계값</label><input type="number" id="tcLum" step="1"></div>
@@ -481,7 +529,7 @@ const PRESETS={
 };
 const CFG=Object.assign({
   preset:'own300',mode:'square',calib:300,dia:300,rings:10,
-  perRound:10, red:22,lum:38,minA:4,maxA:900,minF:1,cool:300,
+  perRound:10, blackRatio:0.4, red:22,lum:38,minA:4,maxA:900,minF:1,cool:300,
   serverUrl:''
 }, load(K.cfg,{}));
 function saveCfg(){ save(K.cfg,CFG); }
@@ -598,10 +646,11 @@ function ensure(n){
 }
 function detect(img,bg,w,h,thRed,thLum,minA,maxA){
   const n=w*h,d=img.data;
-  if(!bg||!bg.mR||bg.mR.length<n) return {blobs:[],stats:{maxRed:0,maxLum:0,flood:false}};
+  if(!bg||!bg.mR||bg.mR.length<n) return {blobs:[],stats:{maxRed:0,maxLum:0,flood:false,redAt:null,lumAt:null}};
   ensure(n);
   const wgt=buf.w,lum=buf.l,lab=buf.lb,st=buf.st;
   let any=false,maxRed=0,maxLum=0,sumRed=0,sumLum=0;
+  let mrx=-1,mry=-1,mlx=-1,mly=-1;   // 최대 신호 위치 (임계값 미달이어도 보고)
   for(let i=0,p=0;i<n;i++,p+=4){
     const bR=bg.mR[i],bG=bg.mG[i],bB=bg.mB[i];
     const dR=d[p]-bR,dG=d[p+1]-bG,dB=d[p+2]-bB;
@@ -610,12 +659,13 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
     lum[i]= yd>0 ? yd/(yb>REF_BG?yb:REF_BG) : 0;   // 반사율 보정 (링 선 편향 제거)
     const nR=norm(dR,bR),nG=norm(dG,bG),nB=norm(dB,bB);
     const mRed=100*(nR-0.5*(nG+nB)), mLum=100*(0.4*nR+0.4*nG+0.2*nB);
-    if(mRed>maxRed)maxRed=mRed; if(mLum>maxLum)maxLum=mLum;
+    if(mRed>maxRed){maxRed=mRed;mrx=i%w;mry=(i-i%w)/w;}
+    if(mLum>maxLum){maxLum=mLum;mlx=i%w;mly=(i-i%w)/w;}
     if(mRed>0)sumRed+=mRed; if(mLum>0)sumLum+=mLum;
     const exc=Math.max(mRed/thRed,mLum/thLum), v=exc>1?exc:0;
     wgt[i]=v; lab[i]=v>0?-1:0; if(v>0)any=true;
   }
-  const stats={maxRed,maxLum,flood:false};
+  const stats={maxRed,maxLum,flood:false,redAt:mrx<0?null:{x:mrx,y:mry},lumAt:mlx<0?null:{x:mlx,y:mly}};
   if(sumLum/n>8||sumRed/n>8){ stats.flood=true; return {blobs:[],stats}; }
   if(!any) return {blobs:[],stats};
   const blobs=[],GATE=1.25;
@@ -645,6 +695,8 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
 }
 
 const E={ stream:null,vw:0,vh:0,quad:null,H:null,Hinv:null,roi:null,bg:null,
+  fitMode:'manual', fitRot:0, fitScale:1, fitDisc:null,
+  probe:{red:0,lum:0,at:null,frames:0,hits:0,bg:0},
   mmPerPx:0,mode:'idle',running:false,tracks:[],lastEmit:0,lastPos:null,
   bgCount:0,fps:0,frames:0,fpsT:0,floodSince:0,floodWarn:0 };
 const BG_FRAMES=60;
@@ -679,7 +731,12 @@ async function startCamera(){
   document.getElementById('tcCalib').disabled=false;
   // 저장된 캘리브레이션 복원
   const q=load('sl.quad',null);
-  if(q&&q.vw===E.vw&&q.vh===E.vh){ E.quad=q.quad; if(buildTransform()) log('저장된 표적 위치를 복원했습니다. 배경 학습만 하십시오.'); }
+  if(q&&q.vw===E.vw&&q.vh===E.vh){
+    if(q.fit==='auto'&&q.H){ E.fitMode='auto'; E.H=q.H; E.fitDisc=q.disc||null;
+      if(finalizeTransform()) log('저장된 표적 위치를 복원했습니다(자동). 배경 학습만 하십시오.'); }
+    else if(q.quad){ E.fitMode='manual'; E.quad=q.quad;
+      if(buildTransform()) log('저장된 표적 위치를 복원했습니다. 배경 학습만 하십시오.'); }
+  }
   badge.textContent=E.quad?'표적 위치 복원됨\n[배경 학습]을 누르십시오':'[표적 맞추기]를 누르십시오';
   startLoop(); keepAwake(); updReady();
 }
@@ -715,8 +772,18 @@ const LOUPE_SRC=48, FINE_GAIN=0.25;
 let calibPts=[],calibIdx=0,dragging=false,anchorPt=null,candPt=null;
 const loupe=document.getElementById('loupe'),lctx=document.getElementById('loupeC').getContext('2d');
 
+function beginAutoFit(){
+  if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
+  E.mode='autofit'; E.H=null; E.quad=null; E.roi=null; E.bg=null; E.fitDisc=null;
+  document.getElementById('tcBg').disabled=true;
+  badge.textContent='표적의 검은 원 안을 한 번 누르십시오';
+  showHint('표적 가운데 <b>검은 원 안</b>을 한 번 누르십시오<em>앱이 원을 찾아 채점 좌표계를 자동으로 세웁니다</em>');
+  log('자동 맞추기 대기');
+  updReady(); updFitUI();
+}
 function beginCalib(){
   if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
+  E.fitMode='manual'; E.fitDisc=null;
   calibPts=[];calibIdx=0;E.mode='calib';E.quad=null;E.H=null;E.roi=null;E.bg=null;
   document.getElementById('tcBg').disabled=true;
   badge.textContent='표적 네 모서리를 지정하십시오';
@@ -737,7 +804,14 @@ function drawLoupe(p,ev){
   loupe.style.left=Math.max(2,Math.min(r.width-182,lx))+'px';
   loupe.style.top=ly+'px'; loupe.style.display='block';
 }
-overlay.addEventListener('pointerdown',ev=>{ if(E.mode!=='calib')return; ev.preventDefault();
+overlay.addEventListener('pointerdown',ev=>{
+  if(E.mode==='autofit'){ ev.preventDefault();
+    const p=evToVideo(ev);
+    if(autoFit(p.x,p.y)){ E.mode='idle'; hideHint();
+      badge.textContent='표적 인식 완료\n링이 인쇄물과 맞는지 확인하십시오';
+      document.getElementById('tcBg').disabled=false; updReady(); updFitUI(); }
+    return; }
+  if(E.mode!=='calib')return; ev.preventDefault();
   overlay.setPointerCapture(ev.pointerId); dragging=true;
   anchorPt=evToVideo(ev); candPt={x:anchorPt.x,y:anchorPt.y}; drawLoupe(candPt,ev); });
 overlay.addEventListener('pointermove',ev=>{ if(E.mode!=='calib'||!dragging)return; ev.preventDefault();
@@ -764,13 +838,18 @@ function finishCalib(){
   updReady();
 }
 function buildTransform(){
+  if(E.fitMode==='auto'){ return E.H?finalizeTransform():false; }
   const c=CFG.calib/2;
   const src=CFG.mode==='ring'?[{x:0,y:c},{x:c,y:0},{x:0,y:-c},{x:-c,y:0}]
                              :[{x:-c,y:c},{x:c,y:c},{x:c,y:-c},{x:-c,y:-c}];
   E.H=homography(src,E.quad); if(!E.H) return false;
+  return finalizeTransform();
+}
+/* 변환이 정해진 뒤의 공통 처리 — ROI, 해상도, 배경 초기화 */
+function finalizeTransform(){
   E.Hinv=invert3(E.H); if(!E.Hinv) return false;
-  const pts=E.quad.slice(),R=CFG.dia/2;
-  for(let a=0;a<24;a++){ const t=a/24*Math.PI*2; pts.push(applyH(E.H,Math.cos(t)*R,Math.sin(t)*R)); }
+  const pts=E.quad?E.quad.slice():[], R=CFG.dia/2;
+  for(let a=0;a<32;a++){ const t=a/32*Math.PI*2; pts.push(applyH(E.H,Math.cos(t)*R,Math.sin(t)*R)); }
   const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
   const pad=Math.max(10,(Math.max(...xs)-Math.min(...xs))*0.07);
   const x0=Math.max(0,Math.floor(Math.min(...xs)-pad)),y0=Math.max(0,Math.floor(Math.min(...ys)-pad));
@@ -809,6 +888,18 @@ function tick(){
       bg.sR=bg.sG=bg.sB=null; bg.ready=true; E.mode='idle';
       badge.textContent='준비 완료'; log('배경 학습 완료'); updReady(); refreshFireState();
     }
+  } else if(E.mode==='probe'&&E.bg&&E.bg.ready&&E.bg.mR){
+    const img=grabROI();
+    // 임계값을 아주 낮춰 '무엇이든 보이는가'를 먼저 확인한다
+    const R=detect(img,E.bg,E.roi.w,E.roi.h,3,5,1,999999);
+    const pr=E.probe; pr.frames++;
+    if(R.stats.maxRed>pr.red){ pr.red=R.stats.maxRed; }
+    if(R.stats.maxLum>pr.lum){ pr.lum=R.stats.maxLum; pr.at=R.stats.lumAt; }
+    if(R.stats.redAt&&R.stats.maxRed>=R.stats.maxLum) pr.at=R.stats.redAt;
+    pr.cur={red:R.stats.maxRed,lum:R.stats.maxLum,flood:R.stats.flood};
+    if(R.blobs.length) pr.hits++;
+    E.lastHits=R.blobs;
+    if((pr.frames&3)===0) updProbe();
   } else if(E.mode==='run'&&E.bg&&E.bg.ready&&E.bg.mR){
     const img=grabROI();
     const R=detect(img,E.bg,E.roi.w,E.roi.h,CFG.red,CFG.lum,CFG.minA,CFG.maxA);
@@ -868,17 +959,39 @@ function renderOverlay(){
     if(calibPts.length>1){ octx.strokeStyle='rgba(226,69,47,.85)';octx.lineWidth=2;octx.beginPath();
       calibPts.forEach((p,i)=>{const q=P(p);i?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y);});octx.stroke(); }
   }
-  if(E.quad&&E.H){
-    octx.strokeStyle='rgba(23,166,124,.95)';octx.lineWidth=2;octx.beginPath();
-    for(let a=0;a<=72;a++){ const t=a/72*Math.PI*2;
-      const q=P(applyH(E.H,Math.cos(t)*CFG.dia/2,Math.sin(t)*CFG.dia/2));
-      a?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y); }
-    octx.closePath();octx.stroke();
-    const c=P(applyH(E.H,0,0));
-    octx.beginPath();octx.moveTo(c.x-7,c.y);octx.lineTo(c.x+7,c.y);
-    octx.moveTo(c.x,c.y-7);octx.lineTo(c.x,c.y+7);octx.lineWidth=1.5;octx.stroke();
+  /* ★ 인쇄물과 맞는지 눈으로 확인할 수 있도록 링을 모두 그린다 ★
+     예전에는 최외곽 원 하나만 그려서, 어긋나도 알아채기 어려웠습니다. */
+  if(E.H){
+    const ring=(CFG.dia/2)/CFG.rings;
+    const drawCircle=(r,style,lw)=>{
+      octx.strokeStyle=style; octx.lineWidth=lw; octx.beginPath();
+      for(let a=0;a<=64;a++){ const t=a/64*Math.PI*2;
+        const q=P(applyH(E.H,Math.cos(t)*r,Math.sin(t)*r));
+        a?octx.lineTo(q.x,q.y):octx.moveTo(q.x,q.y); }
+      octx.closePath(); octx.stroke();
+    };
+    for(let k=1;k<=CFG.rings;k++)
+      drawCircle(ring*k, k===CFG.rings?'rgba(23,166,124,.95)':'rgba(23,166,124,.42)', k===CFG.rings?2:1);
+    // 흑심 경계 — 인쇄된 검은 원과 맞는지 보는 기준선
+    drawCircle(CFG.dia*CFG.blackRatio/2,'rgba(255,212,0,.9)',1.8);
+    const c=P(applyH(E.H,0,0)), up=P(applyH(E.H,0,CFG.dia/2));
+    octx.strokeStyle='rgba(23,166,124,.95)';octx.lineWidth=1.5;
+    octx.beginPath();octx.moveTo(c.x-8,c.y);octx.lineTo(c.x+8,c.y);
+    octx.moveTo(c.x,c.y-8);octx.lineTo(c.x,c.y+8);octx.stroke();
+    // 12시 방향 표시
+    octx.beginPath();octx.moveTo(up.x,up.y-9);octx.lineTo(up.x,up.y+9);octx.lineWidth=2.5;
+    octx.strokeStyle='rgba(18,61,107,.9)';octx.stroke();
   }
-  if(E.mode==='run'&&E.lastHits) for(const b of E.lastHits){
+  if(E.mode==='probe'&&E.probe.at&&E.roi){
+    const q={x:(E.roi.x+E.probe.at.x)*s, y:(E.roi.y+E.probe.at.y)*s};
+    octx.strokeStyle='#FFD400'; octx.lineWidth=2;
+    octx.beginPath(); octx.arc(q.x,q.y,13,0,7); octx.stroke();
+    octx.beginPath(); octx.moveTo(q.x-19,q.y); octx.lineTo(q.x-15,q.y);
+    octx.moveTo(q.x+15,q.y); octx.lineTo(q.x+19,q.y); octx.stroke();
+    octx.fillStyle='#FFD400'; octx.font='bold 10px monospace';
+    octx.fillText('최강', q.x+16, q.y-14);
+  }
+  if((E.mode==='run'||E.mode==='probe')&&E.lastHits) for(const b of E.lastHits){
     const q={x:(E.roi.x+b.x)*s,y:(E.roi.y+b.y)*s};
     octx.strokeStyle='#FFD400';octx.lineWidth=1.5;octx.beginPath();octx.arc(q.x,q.y,9,0,7);octx.stroke(); }
   const marks = TEST.on||TEST.shots.length ? TEST.shots : SES.shots;
@@ -888,6 +1001,194 @@ function renderOverlay(){
     octx.beginPath();octx.arc(q.x,q.y,5.5,0,7);octx.fill();
     octx.strokeStyle='#fff';octx.lineWidth=1.5;octx.stroke();
     octx.fillStyle='#fff';octx.font='bold 10px monospace';octx.fillText(String(i+1),q.x+8,q.y-5); });
+}
+
+/* ★ 자동 원 맞추기 ★
+   -------------------------------------------------------------------------
+   네모 모서리를 찍는 방식은 "찍은 네모"와 "인쇄된 채점 원"이 다르면 어긋납니다.
+   대신 표적의 검은 조준원(흑심)을 직접 찾아 좌표계를 세웁니다.
+
+   원리 — 원은 어떤 아핀변환을 거쳐도 타원이 됩니다.
+     타원의 2차 모멘트 Σ 와 원 반지름 Rb 사이에 Σ = (Rb²/4)·M·Mᵀ 가 성립하므로
+     M = (2/Rb)·Σ^(1/2)·R(φ) 로 되돌릴 수 있습니다.
+     R(φ)(면내 회전)만은 원의 대칭성 때문에 정해지지 않는데,
+     채점은 '중심에서의 거리'만 쓰므로 회전은 점수에 영향이 없습니다.
+
+   합성 시험 결과 — 반지름 복원 오차 0.19mm.
+   다만 실제 원근을 아핀으로 근사하므로 카메라를 기울일수록 오차가 커집니다.
+     기울기 10° → 1.4mm · 20° → 2.7mm · 30° → 4.0mm
+   태블릿을 표적과 되도록 마주보게 두십시오.                                 */
+const fitCv=document.createElement('canvas');
+const fitCtx=fitCv.getContext('2d',{willReadFrequently:true});
+
+function sqrtSym(a,b,c){
+  const tr=a+c, det=a*c-b*b;
+  const sd=Math.sqrt(Math.max(det,1e-12)), t=Math.sqrt(Math.max(tr+2*sd,1e-12));
+  return [(a+sd)/t, b/t, (c+sd)/t];
+}
+function affineFromEllipse(cov,cx,cy,Rb,rotDeg){
+  const ss=sqrtSym(cov.a,cov.b,cov.c), k=2/Rb;
+  const M0=[[k*ss[0],k*ss[1]],[k*ss[1],k*ss[2]]];
+  const mk=d=>{ const r=d*Math.PI/180, cs=Math.cos(r), sn=Math.sin(r);
+    return [ M0[0][0]*cs+M0[0][1]*sn, -(-M0[0][0]*sn+M0[0][1]*cs),
+             M0[1][0]*cs+M0[1][1]*sn, -(-M0[1][0]*sn+M0[1][1]*cs) ]; };
+  let best=0,bd=1e9;
+  for(let d=0;d<360;d+=0.5){
+    const m=mk(d), ang=Math.atan2(m[3],m[1])*180/Math.PI;
+    const diff=Math.abs(((ang+90)%360+540)%360-180);
+    if(diff<bd){bd=diff;best=d;}
+  }
+  const m=mk(best+(rotDeg||0));
+  return [m[0],m[1],cx, m[2],m[3],cy, 0,0,1];
+}
+/* 흑심의 '바깥 경계'를 방사형으로 찾는다.
+   ------------------------------------------------------------------
+   단순 플러드필은 쓸 수 없습니다. 실제 표적은 검은 조준원 위에 흰 링 선이
+   그려져 있어서, 채우기가 첫 링 선에 막혀 가장 안쪽 원만 잡힙니다.
+   대신 누른 지점에서 사방으로 광선을 쏘아, 밝기가 '계속' 밝아지는 지점을
+   바깥 경계로 봅니다. 얇은 링 선은 잠깐 밝아졌다 다시 어두워지므로 무시됩니다.
+   경계점들로 둘러싸인 영역의 모멘트를 극좌표 적분으로 구해 타원을 얻습니다. */
+function fitBlackDisc(vx,vy){
+  const maxW=960, sc=Math.min(1,maxW/E.vw);
+  const w=Math.round(E.vw*sc), h=Math.round(E.vh*sc);
+  if(fitCv.width!==w||fitCv.height!==h){ fitCv.width=w; fitCv.height=h; }
+  fitCtx.drawImage(video,0,0,E.vw,E.vh,0,0,w,h);
+  const d=fitCtx.getImageData(0,0,w,h).data, n=w*h;
+  const L=new Float32Array(n);
+  for(let i=0,q=0;i<n;i++,q+=4) L[i]=0.30*d[q]+0.59*d[q+1]+0.11*d[q+2];
+  const tx=vx*sc, ty=vy*sc;
+  if(tx<2||ty<2||tx>=w-2||ty>=h-2) return {err:'화면 안쪽을 눌러 주십시오.'};
+  const at=(x,y)=>{ const xi=Math.round(x), yi=Math.round(y);
+    return (xi<0||yi<0||xi>=w||yi>=h)?255:L[yi*w+xi]; };
+
+  // 주변 밝기 분포로 임계값 결정
+  const rad=Math.round(Math.min(w,h)*0.45), samp=[];
+  for(let y=Math.max(0,ty-rad);y<Math.min(h,ty+rad);y+=2)
+    for(let x=Math.max(0,tx-rad);x<Math.min(w,tx+rad);x+=2) samp.push(L[Math.round(y)*w+Math.round(x)]);
+  samp.sort((a,b)=>a-b);
+  const q=f=>samp[Math.min(samp.length-1,Math.floor(samp.length*f))];
+  const L0=at(tx,ty), Lhi=q(0.85), Lq25=q(0.25);
+  if(Lhi-L0<25) return {err:'누른 곳과 주변의 밝기 차이가 작습니다. 표적의 <b>검은 원 안</b>을 눌러 주십시오.'};
+  if(L0>Lq25+18||L0>q(0.35))
+    return {err:'누른 곳이 어둡지 않습니다. 표적 가운데 <b>검은 원 안</b>을 눌러 주십시오.'};
+  const th=L0+0.5*(Lhi-L0);
+
+  // 방사형 경계 탐색
+  const NA=180, RMAX=Math.min(w,h)*0.48, HOLD=Math.max(3,Math.round(Math.min(w,h)*0.012));
+  const R=new Float64Array(NA); let found=0;
+  for(let a=0;a<NA;a++){
+    const th2=a/NA*Math.PI*2, cs=Math.cos(th2), sn=Math.sin(th2);
+    let edge=-1;
+    for(let r=2;r<RMAX;r+=1){
+      const cur=at(tx+cs*r, ty+sn*r);
+      if(cur>th){
+        let allBright=true;
+        for(let k=1;k<=HOLD;k++) if(at(tx+cs*(r+k), ty+sn*(r+k))<=th){ allBright=false; break; }
+        if(allBright){
+          // 서브픽셀 보간 — 정수 픽셀에서 끊으면 배율이 1~2% 어긋나고,
+          // 흑심에서 최외곽 링까지 2.5배 외삽되며 오차가 그만큼 커집니다.
+          const prev=at(tx+cs*(r-1), ty+sn*(r-1));
+          edge = (cur>prev) ? (r-1)+(th-prev)/(cur-prev) : r;
+          break;
+        }
+      }
+    }
+    R[a]= edge<0 ? NaN : edge;
+    if(edge>0) found++;
+  }
+  if(found<NA*0.8) return {err:'검은 원의 경계를 찾지 못했습니다. 표적 전체가 화면에 들어오는지 확인하십시오.'};
+  // 중앙값 필터로 튀는 값 제거
+  const Rs=new Float64Array(NA);
+  for(let a=0;a<NA;a++){
+    const v=[];
+    for(let k=-2;k<=2;k++){ const x=R[(a+k+NA)%NA]; if(!isNaN(x)) v.push(x); }
+    v.sort((p1,p2)=>p1-p2);
+    Rs[a]= v.length? v[Math.floor(v.length/2)] : NaN;
+  }
+  for(let a=0;a<NA;a++) if(isNaN(Rs[a])) return {err:'경계가 불안정합니다. 조명 반사를 확인하십시오.'};
+  const rmin=Math.min(...Rs), rmax=Math.max(...Rs);
+  if(rmin<6) return {err:'검은 원이 너무 작게 보입니다. 태블릿을 표적에 더 가까이 두십시오.'};
+  if(rmax/rmin>3) return {err:'찾은 모양이 원에 가깝지 않습니다. 검은 원 한가운데를 눌러 주십시오.'};
+
+  // 극좌표 적분으로 영역 모멘트
+  const dA=Math.PI*2/NA;
+  let m00=0,m10=0,m01=0,m20=0,m11=0,m02=0;
+  for(let a=0;a<NA;a++){
+    const t2=a/NA*Math.PI*2, cs=Math.cos(t2), sn=Math.sin(t2), r=Rs[a];
+    const r2=r*r, r3=r2*r, r4=r3*r;
+    m00+=r2/2*dA; m10+=r3/3*cs*dA; m01+=r3/3*sn*dA;
+    m20+=r4/4*cs*cs*dA; m11+=r4/4*cs*sn*dA; m02+=r4/4*sn*sn*dA;
+  }
+  const gx=m10/m00, gy=m01/m00;
+  const cov={a:m20/m00-gx*gx, b:m11/m00-gx*gy, c:m02/m00-gy*gy};
+  if(cov.a<=0||cov.c<=0||cov.a*cov.c-cov.b*cov.b<=0) return {err:'타원 계산에 실패했습니다. 다시 시도해 주십시오.'};
+  return { cx:(tx+gx)/sc, cy:(ty+gy)/sc, area:m00/(sc*sc),
+           cov:{a:cov.a/(sc*sc), b:cov.b/(sc*sc), c:cov.c/(sc*sc)},
+           rmin:rmin/sc, rmax:rmax/sc };
+}
+/* 인쇄된 링 선에 맞춰 배율을 자동 보정
+   ------------------------------------------------------------------
+   흑심(반지름 0.2×전체)만으로 최외곽 링까지 2.5배 외삽하므로,
+   경계 검출이 1%만 틀려도 바깥 링에서 2~3mm 어긋납니다.
+   표적에는 등간격 링 선이 이미 인쇄되어 있으므로, 배율을 조금씩 바꿔가며
+   '예상 링 위치가 가장 어두운' 배율을 찾으면 외삽 오차를 크게 줄일 수 있습니다. */
+function refineScale(){
+  if(E.fitMode!=='auto'||!E.H||!E.vw||!E.fitDisc) return null;
+  const maxW=960, sc=Math.min(1,maxW/E.vw);
+  const w=Math.round(E.vw*sc), h=Math.round(E.vh*sc);
+  if(fitCv.width!==w||fitCv.height!==h){ fitCv.width=w; fitCv.height=h; }
+  fitCtx.drawImage(video,0,0,E.vw,E.vh,0,0,w,h);
+  const d=fitCtx.getImageData(0,0,w,h).data;
+  const lum=(x,y)=>{ const xi=Math.round(x*sc), yi=Math.round(y*sc);
+    if(xi<0||yi<0||xi>=w||yi>=h) return 255;
+    const i=(yi*w+xi)*4; return 0.30*d[i]+0.59*d[i+1]+0.11*d[i+2]; };
+  const ring=(CFG.dia/2)/CFG.rings, blackK=Math.round(CFG.rings*CFG.blackRatio);
+  const ks=[]; for(let k=blackK+1;k<CFG.rings;k++) ks.push(k);
+  if(ks.length<2) return null;
+  let best=1,bestScore=1e18;
+  for(let f=0.90;f<=1.1001;f+=0.004){
+    let sum=0,cnt=0;
+    for(const k of ks){
+      const r=ring*k*f;
+      for(let a=0;a<48;a++){
+        const t=a/48*Math.PI*2;
+        const p=applyH(E.H,Math.cos(t)*r,Math.sin(t)*r);
+        sum+=lum(p.x,p.y); cnt++;
+      }
+    }
+    const v=sum/cnt;
+    if(v<bestScore){ bestScore=v; best=f; }
+  }
+  if(Math.abs(best-1)<0.004) return {applied:1,score:bestScore};
+  E.fitScale*=best;
+  const Rb=(CFG.dia*CFG.blackRatio)/2/E.fitScale;
+  E.H=affineFromEllipse(E.fitDisc.cov,E.fitDisc.cx,E.fitDisc.cy,Rb,E.fitRot);
+  finalizeTransform();
+  save('sl.quad',{vw:E.vw,vh:E.vh,fit:'auto',H:E.H,disc:E.fitDisc});
+  return {applied:best,score:bestScore};
+}
+
+function autoFit(vx,vy){
+  const r=fitBlackDisc(vx,vy);
+  if(r.err){ showHint('<b>자동 인식 실패</b><em>'+r.err+'</em>');
+    log('자동 맞추기 실패: '+r.err.replace(/<[^>]+>/g,'')); return false; }
+  E.fitMode='auto'; E.fitRot=0; E.fitScale=1; E.fitDisc=r; E.quad=null;
+  const Rb=(CFG.dia*CFG.blackRatio)/2;
+  E.H=affineFromEllipse(r.cov,r.cx,r.cy,Rb,0);
+  if(!finalizeTransform()){ showHint('<b>변환 계산 실패</b><em>다시 시도해 주십시오.</em>'); return false; }
+  const rf=refineScale();
+  save('sl.quad',{vw:E.vw,vh:E.vh,fit:'auto',H:E.H,disc:r});
+  log('자동 맞추기 성공 · 흑심 '+Math.round(r.area)+'px · '+E.mmPerPx.toFixed(3)+' mm/px'
+      +(rf&&Math.abs(rf.applied-1)>0.004?' · 링 선에 맞춰 배율 '+((rf.applied-1)*100).toFixed(1)+'% 보정':''));
+  return true;
+}
+function reFit(){
+  if(E.fitMode!=='auto'||!E.fitDisc) return;
+  const Rb=(CFG.dia*CFG.blackRatio)/2/E.fitScale;
+  E.H=affineFromEllipse(E.fitDisc.cov,E.fitDisc.cx,E.fitDisc.cy,Rb,E.fitRot);
+  finalizeTransform();
+  save('sl.quad',{vw:E.vw,vh:E.vh,fit:'auto',H:E.H,disc:E.fitDisc});
+  updReady(); updFitUI();
 }
 
 /* ★ 교사 테스트 사격 ★
@@ -1425,7 +1726,8 @@ function refreshTeacher(){
   }));
   // 표적/검출
   const cfgMap=[['tcPreset','preset'],['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],
-                ['tcPerRound','perRound'],['tcRed','red'],['tcLum','lum']];
+                ['tcPerRound','perRound'],['tcRed','red'],['tcLum','lum'],
+                ['tcBlack','blackRatio'],['tcMinA','minA']];
   cfgMap.forEach(([id,k])=>{ const el=document.getElementById(id); el.value=CFG[k]; });
   // 데이터
   document.getElementById('tcNStu').textContent=ROSTER.students.length;
@@ -1449,7 +1751,7 @@ document.getElementById('tcPreset').addEventListener('change',ev=>{
   if(p&&p.calib==null) alert('LaserHIT 표적은 네 귀퉁이 25M 마커 사이 거리를 자로 재어\n[캘리브레이션 기준]에 직접 입력하셔야 합니다.');
 });
 [['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],['tcPerRound','perRound'],
- ['tcRed','red'],['tcLum','lum']].forEach(([id,k])=>{
+ ['tcRed','red'],['tcLum','lum'],['tcBlack','blackRatio'],['tcMinA','minA']].forEach(([id,k])=>{
   document.getElementById(id).addEventListener('change',ev=>{
     const v=parseFloat(ev.target.value);
     if(isFinite(v)&&v>0){ CFG[k]=v; CFG.preset='custom'; saveCfg();
@@ -1470,17 +1772,107 @@ document.getElementById('tcUnlock').addEventListener('click',()=>{
 document.getElementById('tcCam').addEventListener('click',startCamera);
 document.getElementById('tcCalib').addEventListener('click',beginCalib);
 document.getElementById('tcBg').addEventListener('click',beginBg);
+document.getElementById('tcAuto').addEventListener('click',beginAutoFit);
+
+/* ---------- 자동 맞추기 미세 조정 ---------- */
+function updFitUI(){
+  const box=document.getElementById('tcFitBox'); if(!box) return;
+  const on=E.fitMode==='auto'&&!!E.H;
+  box.style.display=on?'':'none';
+  if(on) document.getElementById('tcFitInfo').innerHTML=
+    `크기 <b>${(E.fitScale*100).toFixed(0)}%</b> · 회전 <b>${E.fitRot.toFixed(0)}°</b> · 해상도 ${E.mmPerPx.toFixed(2)} mm/px`;
+}
+document.getElementById('tcFitBox').addEventListener('click',ev=>{
+  const b=ev.target.closest('button[data-fit]'); if(!b) return;
+  const k=b.dataset.fit;
+  if(k==='s-') E.fitScale=Math.max(0.5,E.fitScale-0.01);
+  else if(k==='s+') E.fitScale=Math.min(2,E.fitScale+0.01);
+  else if(k==='r-') E.fitRot-=5;
+  else if(k==='r+') E.fitRot+=5;
+  else if(k==='auto'){ const rf=refineScale();
+    log(rf?('링 맞추기: 배율 '+((rf.applied-1)*100).toFixed(1)+'% 보정'):'링 맞추기 실패');
+    updReady(); updFitUI(); return; }
+  else { E.fitScale=1; E.fitRot=0; }
+  reFit();
+});
+
+/* ---------- 신호 측정 ---------- */
+function bgBrightness(){
+  if(!E.bg||!E.bg.ready||!E.bg.mR) return 0;
+  const n=E.bg.n||E.bg.mR.length, step=Math.max(1,Math.floor(n/6000)), v=[];
+  for(let i=0;i<n;i+=step) v.push(E.bg.mR[i]*0.3+E.bg.mG[i]*0.59+E.bg.mB[i]*0.11);
+  v.sort((a,b)=>b-a);
+  const k=Math.max(1,Math.floor(v.length*0.2));
+  let sm=0; for(let i=0;i<k;i++) sm+=v[i];
+  return sm/k;
+}
+function updProbe(){
+  const pr=E.probe;
+  const bb=bgBrightness();
+  document.getElementById('pvBg').textContent=bb.toFixed(0);
+  document.getElementById('pvRed').textContent=pr.red.toFixed(0);
+  document.getElementById('pvLum').textContent=pr.lum.toFixed(0);
+  document.getElementById('pvHit').textContent=pr.hits;
+  const adv=document.getElementById('pvAdvice');
+  const strong=Math.max(pr.red,pr.lum);
+  let h='';
+  if(pr.cur&&pr.cur.flood) h+='<span class="tag bad">화면 전체 변동</span> 카메라가 움직였거나 조명이 바뀌었습니다. <b>배경 학습</b>을 다시 하십시오.<br>';
+  if(strong<8){
+    h+='<span class="tag bad">신호 없음</span> 카메라가 레이저를 전혀 못 보고 있습니다.<br>'
+      +'① 레이저가 <b>표적 안</b>을 비추는지 ② 방아쇠를 당길 때 실제로 켜지는지 ③ 배경 학습 뒤 카메라가 움직이지 않았는지<br>'
+      +'④ 아두이노 <b>PULSE_MS 를 150~200</b>으로 늘려 보십시오. 펄스가 너무 짧으면 카메라가 놓칩니다.';
+  } else if(strong<25){
+    h+='<span class="tag mid">신호 약함</span> 잡히긴 하나 약합니다.<br>';
+    if(bb>=238) h+='바탕이 <b>'+bb.toFixed(0)+'</b>로 너무 밝아 여유가 없습니다. 조명을 낮추거나 회색 바탕 표적을 쓰십시오.<br>';
+    h+='아래 <b>임계값 자동 설정</b>을 누른 뒤 다시 쏴 보십시오.';
+  } else {
+    h+='<span class="tag ok">신호 충분</span> 최대 '+strong.toFixed(0)+' — 임계값만 맞추면 됩니다.<br>';
+    if(bb>=238) h+='다만 바탕이 <b>'+bb.toFixed(0)+'</b>로 매우 밝습니다. 조명을 낮추면 더 안정적입니다.<br>';
+  }
+  if(strong>=8) h+=`<button class="sm" id="pvApply" style="margin-top:7px">임계값 자동 설정 (적색 ${Math.max(5,Math.round(pr.red*0.45))} · 밝기 ${Math.max(10,Math.round(pr.lum*0.5))})</button>`;
+  adv.innerHTML=h;
+  const ap=document.getElementById('pvApply');
+  if(ap) ap.onclick=()=>{
+    CFG.red=Math.max(5,Math.round(pr.red*0.45));
+    CFG.lum=Math.max(10,Math.round(pr.lum*0.5));
+    if(pr.minArea) CFG.minA=Math.max(1,Math.min(20,Math.floor(pr.minArea*0.5)));
+    saveCfg(); refreshTeacher();
+    log(`임계값 자동 설정: 적색 ${CFG.red} · 밝기 ${CFG.lum}`);
+    alert(`임계값을 적색 ${CFG.red}, 밝기 ${CFG.lum} 로 맞췄습니다.\n[테스트 사격]으로 확인해 보십시오.`);
+  };
+}
+function toggleProbe(){
+  if(E.mode==='probe'){ E.mode='idle';
+    document.getElementById('tcProbe').textContent='신호 측정 시작';
+    document.getElementById('tcProbe').className='warn';
+    badge.textContent='준비 완료'; E.lastHits=null; return; }
+  if(!E.bg||!E.bg.ready){ alert('먼저 [배경 학습]을 하십시오.'); return; }
+  E.probe={red:0,lum:0,at:null,frames:0,hits:0,bg:0};
+  E.mode='probe';
+  document.getElementById('tcProbe').textContent='측정 종료';
+  document.getElementById('tcProbe').className='danger';
+  document.getElementById('tcProbeBox').style.display='';
+  badge.textContent='신호 측정 중\n표적에 레이저를 쏘십시오';
+  log('신호 측정 시작');
+  updProbe();
+}
+document.getElementById('tcProbe').addEventListener('click',toggleProbe);
+document.getElementById('tcProbeReset').addEventListener('click',()=>{
+  E.probe={red:0,lum:0,at:null,frames:0,hits:0,bg:0}; updProbe(); });
 document.getElementById('tcTest').addEventListener('click',toggleTest);
 document.getElementById('tcTestClear').addEventListener('click',()=>{ TEST.shots=[]; updTestInfo(); });
 function updReady(){
   const el=document.getElementById('tcReady'); if(!el) return;
   const ok=!!(E.bg&&E.bg.ready);
   const q=document.getElementById('tcQuality');
-  el.innerHTML= !E.vw ? '<span class="tag mid">카메라 꺼짐</span>'
-    : !E.quad ? '<span class="tag mid">표적 미지정</span> [표적 맞추기]를 누르십시오.'
+  el.innerHTML= !E.vw ? '<span class="tag mid">카메라 꺼짐</span> [카메라 시작]을 누르십시오.'
+    : !E.H ? '<span class="tag mid">표적 미지정</span> [표적 자동 맞추기]를 누르고 검은 원 안을 한 번 누르십시오.'
     : !ok ? '<span class="tag mid">배경 미학습</span> [배경 학습]을 누르십시오.'
     : `<span class="tag ok">준비 완료</span> 학생이 사격할 수 있습니다. · ${E.mmPerPx.toFixed(2)} mm/px`;
   const tb=document.getElementById('tcTest'); if(tb) tb.disabled=!ok;
+  const pb=document.getElementById('tcProbe'); if(pb) pb.disabled=!ok;
+  const ab=document.getElementById('tcAuto'); if(ab) ab.disabled=!E.vw;
+  updFitUI();
   refreshFireState();
   if(q&&E.quad){
     const rm=ringMm(), dispW=video.getBoundingClientRect().width||1;
