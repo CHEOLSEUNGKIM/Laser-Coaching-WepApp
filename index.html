@@ -218,8 +218,14 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 <div id="stageHostF">
   <div id="fsTop"></div>
   <div id="fsInfo"></div>
+  <div id="fsZoomInfo" style="position:fixed;right:10px;top:64px;z-index:62;color:#fff;
+    font-family:var(--mono);font-size:12px;opacity:.9"></div>
   <div id="fsBar">
     <button class="ghost sm" id="fsCancel">취소</button>
+    <button class="ghost sm" id="fsTap" style="display:none">직접 지정</button>
+    <button class="ghost sm" id="fsZoomOut">축소 −</button>
+    <button class="ghost sm" id="fsZoomIn">확대 +</button>
+    <button class="sm" id="fsApprove" style="display:none">승인</button>
     <button class="ghost sm" data-fit="s-" data-tune>크기 −</button>
     <button class="ghost sm" data-fit="s+" data-tune>크기 +</button>
     <button class="ghost sm" data-fit="r-" data-tune>회전 −</button>
@@ -983,12 +989,51 @@ function moveStage(where){
   if(host && stage.parentNode!==host){ host.appendChild(stage); }
   setTimeout(resizeOverlay,30);
 }
+/* 화면 확대(transform)는 배치 크기를 바꾸지 않으므로,
+   오버레이는 '배치 크기'로 만들고 해상도만 확대율만큼 올립니다.
+   (확대해도 링이 뭉개지지 않습니다.) */
+function layoutScale(){ return (video.clientWidth||1)/(E.vw||1); }
 function resizeOverlay(){
-  const r=video.getBoundingClientRect(); if(r.width<2) return;
-  const dpr=Math.min(window.devicePixelRatio||1,2);
-  overlay.width=Math.round(r.width*dpr); overlay.height=Math.round(r.height*dpr);
-  overlay.style.width=r.width+'px'; overlay.style.height=r.height+'px';
+  const cw=video.clientWidth, ch=video.clientHeight; if(cw<2) return;
+  const dpr=Math.min(window.devicePixelRatio||1,2)*(E.zoom||1);
+  E.odpr=dpr;
+  overlay.width=Math.round(cw*dpr); overlay.height=Math.round(ch*dpr);
+  overlay.style.width=cw+'px'; overlay.style.height=ch+'px';
   octx.setTransform(dpr,0,0,dpr,0,0);
+}
+/* ★ 화면 확대 ★
+   표적이 작게 보일 때 링이 맞는지 눈으로 확인하기 어렵습니다.
+   기기가 카메라 확대를 지원하면 그쪽을 먼저 씁니다(화소가 실제로 늘어나
+   레이저 검출에도 유리합니다). 지원하지 않으면 화면만 확대합니다.
+   화면 확대는 순수 배율이라 좌표 변환이 그대로 유지됩니다
+   (getBoundingClientRect 가 확대된 크기를 돌려주기 때문입니다). */
+function applyZoom(z){
+  E.zoom=Math.max(1,Math.min(4,z));
+  const c = E.fitDisc ? {x:E.fitDisc.cx,y:E.fitDisc.cy} : {x:E.vw/2,y:E.vh/2};
+  const k=layoutScale();
+  stage.style.transformOrigin = `${(c.x*k).toFixed(1)}px ${(c.y*k).toFixed(1)}px`;
+  stage.style.transform = E.zoom>1 ? `scale(${E.zoom})` : '';
+  resizeOverlay(); updZoomUI();
+}
+async function camZoom(dir){
+  const tr=E.stream&&E.stream.getVideoTracks()[0];
+  const cap=(tr&&tr.getCapabilities)?tr.getCapabilities():{};
+  if(cap&&cap.zoom&&cap.zoom.max>cap.zoom.min){
+    const st=(tr.getSettings&&tr.getSettings())||{};
+    const step=cap.zoom.step||((cap.zoom.max-cap.zoom.min)/10);
+    let z=(st.zoom||cap.zoom.min)+dir*Math.max(step,(cap.zoom.max-cap.zoom.min)/8);
+    z=Math.max(cap.zoom.min,Math.min(cap.zoom.max,z));
+    try{ await tr.applyConstraints({advanced:[{zoom:z}]}); E.camZoom=z; updZoomUI();
+      log(`카메라 확대 ${z.toFixed(1)}×`); return true; }catch(e){}
+  }
+  applyZoom((E.zoom||1)+dir*0.5);
+  return false;
+}
+function updZoomUI(){
+  const el=document.getElementById('fsZoomInfo');
+  if(!el) return;
+  el.textContent = E.camZoom ? `카메라 ${E.camZoom.toFixed(1)}×`
+    : (E.zoom>1 ? `화면 ${E.zoom.toFixed(1)}×` : '');
 }
 window.addEventListener('resize',resizeOverlay);
 window.addEventListener('orientationchange',()=>setTimeout(resizeOverlay,400));
@@ -1016,6 +1061,7 @@ function enterFS(){
   setTimeout(resizeOverlay,60);
 }
 function exitFS(){
+  if(E.zoom>1) applyZoom(1);
   document.body.classList.remove('fs');
   moveStage('T');
   setTimeout(resizeOverlay,60);
@@ -1023,18 +1069,81 @@ function exitFS(){
 function tuneFS(on){
   document.querySelectorAll('#fsBar [data-tune]').forEach(b=>b.style.display=on?'':'none');
   document.getElementById('fsDone').style.display=on?'':'none';
+  if(on){ const a=document.getElementById('fsApprove'), t=document.getElementById('fsTap');
+    if(a)a.style.display='none'; if(t)t.style.display='none'; }
   const inf=document.getElementById('fsInfo');
   if(inf) inf.textContent = on
     ? `크기 ${(E.fitScale*100).toFixed(0)}% · 회전 ${E.fitRot.toFixed(0)}° · ${E.mmPerPx.toFixed(2)} mm/px` : '';
 }
+/* ★ 자동 탐색 모드 ★
+   교사가 아무 것도 누르지 않아도 앱이 계속 표적을 찾습니다.
+   찾으면 초록 링을 그려 보여주고, 교사는 맞는지 보고 [승인]만 누릅니다. */
+const SCAN={on:false,last:0,ok:false,tries:0};
 function beginAutoFit(){
   if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
-  E.mode='autofit'; E.H=null; E.quad=null; E.roi=null; E.bg=null; E.fitDisc=null;
+  E.mode='scan'; E.H=null; E.quad=null; E.roi=null; E.bg=null; E.fitDisc=null;
+  SCAN.on=true; SCAN.last=0; SCAN.ok=false; SCAN.tries=0;
   document.getElementById('tcBg').disabled=true;
-  badge.textContent='표적의 검은 원 안을 한 번 누르십시오';
+  badge.textContent='표적을 찾는 중…';
+  showHint('표적을 찾는 중입니다<em>표적이 화면에 다 들어오게 태블릿을 두십시오</em>');
+  log('표적 자동 탐색 시작');
+  enterFS(); scanUI(); updReady(); updFitUI();
+}
+/* 손으로 직접 지정하는 예전 방식 (자동이 안 될 때) */
+function beginTapFit(){
+  SCAN.on=false; E.mode='autofit';
   showHint('표적 가운데 <b>검은 원 안</b>을 누르십시오<em>손가락을 대면 확대됩니다 · 천천히 옮긴 뒤 떼면 인식합니다</em>');
-  log('자동 맞추기 대기');
-  enterFS(); updReady(); updFitUI();
+  scanUI();
+}
+function scanTick(now){
+  if(!SCAN.on||E.mode!=='scan') return;
+  if(now-SCAN.last < (SCAN.ok?1200:600)) return;
+  SCAN.last=now; SCAN.tries++;
+  const r=scanTarget(true);
+  /* 한 번 찾은 뒤에는 눈에 띄게 더 좋은 후보가 아니면 바꾸지 않습니다.
+     프레임마다 후보가 바뀌면 교사가 [승인]을 누르는 순간 엉뚱한 것이 확정됩니다. */
+  if(SCAN.ok && r && r.disc && r.score < (SCAN.score||0)*1.25){ scanUI(); return; }
+  if(r&&r.disc){
+    SCAN.score=r.score;
+    E.fitMode='auto'; E.fitRot=0; E.fitScale=1; E.fitDisc=r.disc; E.quad=null;
+    E.H=affineFromEllipse(r.disc.cov,r.disc.cx,r.disc.cy,(CFG.dia*CFG.blackRatio)/2,0);
+    if(finalizeTransform()){
+      if(!SCAN.ok) log(`표적 발견 · 흑심 반지름 ${Math.round((r.disc.rmin+r.disc.rmax)/2)}px`);
+      SCAN.ok=true;
+      showHint('<b>이 표적이 맞습니까?</b><em>초록 링이 인쇄된 링과 겹치면 [승인]을 누르십시오</em>');
+    } else SCAN.ok=false;
+  } else if(!SCAN.ok && SCAN.tries>=3){
+    showHint('<b>표적을 찾지 못했습니다</b><em>표적 전체가 화면에 들어오는지 · 조명 반사가 없는지 보십시오 · 안 되면 [직접 지정]</em>');
+  }
+  scanUI();
+}
+function scanUI(){
+  const ap=document.getElementById('fsApprove'), tp=document.getElementById('fsTap');
+  if(ap) ap.style.display = (E.mode==='scan'&&SCAN.ok)?'':'none';
+  if(tp) tp.style.display = (E.mode==='scan')?'':'none';
+  const inf=document.getElementById('fsInfo');
+  if(inf&&E.mode==='scan') inf.textContent = SCAN.ok
+    ? `흑심 반지름 ${Math.round((E.fitDisc.rmin+E.fitDisc.rmax)/2)}px · ${E.mmPerPx.toFixed(2)} mm/px`
+    : `찾는 중… (${SCAN.tries}회)`;
+}
+function approveScan(){
+  if(!E.fitDisc||!E.H) return;
+  SCAN.on=false; E.mode='idle';
+  /* 승인한 뒤에 한 번 더 정밀하게 — 고해상도로 다시 맞추고 링 선에 배율을 맞춥니다 */
+  const r=fitBlackDisc(E.fitDisc.cx,E.fitDisc.cy,960);
+  if(r&&!r.err&&scoreDisc(r)>0){
+    E.fitDisc=r;
+    E.H=affineFromEllipse(r.cov,r.cx,r.cy,(CFG.dia*CFG.blackRatio)/2,0);
+    finalizeTransform();
+  }
+  const rf=refineScale();
+  save('sl.quad',{vw:E.vw,vh:E.vh,fit:'auto',H:E.H,disc:E.fitDisc});
+  document.getElementById('tcBg').disabled=false;
+  badge.textContent='표적 인식 완료';
+  log('표적 승인 · '+E.mmPerPx.toFixed(3)+' mm/px'
+    +(rf&&Math.abs(rf.applied-1)>0.004?' · 링 선에 맞춰 배율 '+((rf.applied-1)*100).toFixed(1)+'% 보정':''));
+  showHint('<b>인쇄된 링과 초록 링이 겹치는지</b> 보십시오<em>어긋나면 아래 단추로 맞춘 뒤 [완료]</em>');
+  tuneFS(true); scanUI(); updReady(); updFitUI();
 }
 function beginCalib(){
   if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
@@ -1071,6 +1180,11 @@ function drawLoupe(p,ev){
 overlay.addEventListener('pointerdown',ev=>{
   /* 자동 맞추기도 돋보기로 확대해 보며 고릅니다.
      작은 미리보기에서 검은 원 안을 정확히 누르기 어렵다는 현장 의견을 반영했습니다. */
+  /* 자동 탐색 중에 화면을 누르면 바로 '직접 지정'으로 넘어갑니다.
+     교사가 기다리지 않고 바로 찍고 싶을 때를 위한 것입니다. */
+  if(E.mode==='scan'){ SCAN.on=false; E.mode='autofit';
+    showHint('표적 가운데 <b>검은 원 안</b>을 누르십시오<em>손가락을 대면 확대됩니다 · 천천히 옮긴 뒤 떼면 인식합니다</em>');
+    scanUI(); }
   if(E.mode==='autofit'){ ev.preventDefault();
     overlay.setPointerCapture(ev.pointerId); dragging=true;
     anchorPt=evToVideo(ev); candPt={x:anchorPt.x,y:anchorPt.y};
@@ -1194,6 +1308,7 @@ function beginBg(){
 function tick(){
   const now=performance.now(); E.frames++;
   if(REC.on){ recTick(); }
+  if(SCAN.on) scanTick(now);
   if(now-E.fpsT>=600){ E.fps=E.frames*1000/(now-E.fpsT); E.frames=0; E.fpsT=now; }
   if(E.mode==='bg'&&E.roi){
     const img=grabROI(),d=img.data,bg=E.bg;
@@ -1370,7 +1485,7 @@ function renderOverlay(){
   if(!E.vw) return;
   // 미리보기가 화면에 없으면 그릴 필요가 없다 (발열·배터리 절약)
   if(!stage.offsetParent) return;
-  const {s}=dispScale(), dpr=Math.min(window.devicePixelRatio||1,2);
+  const s=layoutScale(), dpr=E.odpr||Math.min(window.devicePixelRatio||1,2);
   const w=overlay.width/dpr,h=overlay.height/dpr;
   octx.clearRect(0,0,w,h);
   const P=p=>({x:p.x*s,y:p.y*s});
@@ -1480,14 +1595,22 @@ function affineFromEllipse(cov,cx,cy,Rb,rotDeg){
    대신 누른 지점에서 사방으로 광선을 쏘아, 밝기가 '계속' 밝아지는 지점을
    바깥 경계로 봅니다. 얇은 링 선은 잠깐 밝아졌다 다시 어두워지므로 무시됩니다.
    경계점들로 둘러싸인 영역의 모멘트를 극좌표 적분으로 구해 타원을 얻습니다. */
-function fitBlackDisc(vx,vy){
-  const maxW=960, sc=Math.min(1,maxW/E.vw);
+/* 축소한 밝기 영상 한 장을 만들어 둡니다.
+   씨앗마다 새로 읽으면 같은 일을 여덟 번 하게 되어 태블릿에서 화면이 끊깁니다. */
+function grabLuma(maxW){
+  const sc=Math.min(1,maxW/E.vw);
   const w=Math.round(E.vw*sc), h=Math.round(E.vh*sc);
   if(fitCv.width!==w||fitCv.height!==h){ fitCv.width=w; fitCv.height=h; }
   fitCtx.drawImage(video,0,0,E.vw,E.vh,0,0,w,h);
   const d=fitCtx.getImageData(0,0,w,h).data, n=w*h;
   const L=new Float32Array(n);
   for(let i=0,q=0;i<n;i++,q+=4) L[i]=0.30*d[q]+0.59*d[q+1]+0.11*d[q+2];
+  return {L,w,h,sc};
+}
+function fitBlackDisc(vx,vy,maxW,pre){
+  maxW=maxW||960;
+  const im=pre||grabLuma(maxW);
+  const sc=im.sc, w=im.w, h=im.h, L=im.L, n=w*h;
   const tx=vx*sc, ty=vy*sc;
   if(tx<2||ty<2||tx>=w-2||ty>=h-2) return {err:'화면 안쪽을 눌러 주십시오.'};
   const at=(x,y)=>{ const xi=Math.round(x), yi=Math.round(y);
@@ -1538,6 +1661,17 @@ function fitBlackDisc(vx,vy){
     Rs[a]= v.length? v[Math.floor(v.length/2)] : NaN;
   }
   for(let a=0;a<NA;a++) if(isNaN(Rs[a])) return {err:'경계가 불안정합니다. 조명 반사를 확인하십시오.'};
+  /* ★ 네모난 물체 걸러내기 ★
+     문틀·게시판은 정사각형에 가까워 rmax/rmin 이 1.41 로 나옵니다.
+     45° 기울어진 원도 1.41 이므로 '둥근 정도'만으로는 가릴 수 없습니다.
+     대신 반지름 곡선 R(θ)의 주기 성분을 봅니다 —
+     타원은 2겹(2θ) 성분만, 정사각형은 4겹(4θ) 성분이 크게 나옵니다. */
+  let c2=0,s2=0,c4=0,s4=0,rmean=0;
+  for(let a=0;a<NA;a++){ const t=a/NA*Math.PI*2, R2=Rs[a];
+    rmean+=R2; c2+=R2*Math.cos(2*t); s2+=R2*Math.sin(2*t);
+    c4+=R2*Math.cos(4*t); s4+=R2*Math.sin(4*t); }
+  rmean/=NA;
+  const A2=2*Math.hypot(c2,s2)/NA/rmean, A4=2*Math.hypot(c4,s4)/NA/rmean;
   const rmin=Math.min(...Rs), rmax=Math.max(...Rs);
   if(rmin<6) return {err:'검은 원이 너무 작게 보입니다. 태블릿을 표적에 더 가까이 두십시오.'};
   if(rmax/rmin>3) return {err:'찾은 모양이 원에 가깝지 않습니다. 검은 원 한가운데를 눌러 주십시오.'};
@@ -1554,9 +1688,126 @@ function fitBlackDisc(vx,vy){
   const gx=m10/m00, gy=m01/m00;
   const cov={a:m20/m00-gx*gx, b:m11/m00-gx*gy, c:m02/m00-gy*gy};
   if(cov.a<=0||cov.c<=0||cov.a*cov.c-cov.b*cov.b<=0) return {err:'타원 계산에 실패했습니다. 다시 시도해 주십시오.'};
-  return { cx:(tx+gx)/sc, cy:(ty+gy)/sc, area:m00/(sc*sc),
+  return { cx:(tx+gx)/sc, cy:(ty+gy)/sc, area:m00/(sc*sc), contrast:Lhi-L0, A2, A4,
            cov:{a:cov.a/(sc*sc), b:cov.b/(sc*sc), c:cov.c/(sc*sc)},
            rmin:rmin/sc, rmax:rmax/sc };
+}
+/* ★★ 표적 자동 탐색 ★★
+   교사가 검은 원 한가운데를 정확히 누르는 것은 생각보다 어렵습니다.
+   (현장에서 5분 넘게 시도하다 실패했습니다.)
+   그래서 화면 전체에서 '가장 어두운 덩어리'를 스스로 찾아 후보로 삼고,
+   교사는 그려진 링이 맞는지 보고 [승인]만 누르면 되도록 바꿉니다.
+
+   찾는 방법 — 어두운 곳 여러 군데를 씨앗으로 잡아 각각 원을 맞춰 보고
+   가장 그럴듯한 것을 고릅니다. 원을 맞추는 계산 자체는 기존과 같은
+   방사형 경계 탐색이라, 흑심에 흰 링 선이 인쇄돼 있어도 잘 동작합니다. */
+const scanCv=document.createElement('canvas'), scanCtx=scanCv.getContext('2d',{willReadFrequently:true});
+function darkSeeds(maxN){
+  const W=200, sc=Math.min(1,W/E.vw);
+  const w=Math.max(8,Math.round(E.vw*sc)), h=Math.max(8,Math.round(E.vh*sc));
+  if(scanCv.width!==w||scanCv.height!==h){ scanCv.width=w; scanCv.height=h; }
+  scanCtx.drawImage(video,0,0,E.vw,E.vh,0,0,w,h);
+  const d=scanCtx.getImageData(0,0,w,h).data, n=w*h;
+  const L=new Float32Array(n);
+  for(let i=0,q=0;i<n;i++,q+=4) L[i]=0.30*d[q]+0.59*d[q+1]+0.11*d[q+2];
+  // 3×3 평균 — 인쇄된 흰 링 선 때문에 흑심 한가운데가 밝게 튀는 것을 눌러 줍니다
+  const B=new Float32Array(n);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    let sm=0,c=0;
+    for(let j=-2;j<=2;j++) for(let i2=-2;i2<=2;i2++){
+      const yy=y+j, xx=x+i2; if(yy<0||xx<0||yy>=h||xx>=w) continue;
+      sm+=L[yy*w+xx]; c++; }
+    B[y*w+x]=sm/c;
+  }
+  /* ★ '어두운 곳'이 아니라 '밝은 바탕 위의 어두운 곳'을 찾습니다 ★
+     교실에는 흑심보다 어두운 것이 얼마든지 있습니다 — 문틀, 게시판, 그림자.
+     실제로 시험해 보니 문틀을 표적으로 잘못 잡았습니다.
+     표적의 검은 원은 '흰 종이 한가운데의 검은 점'이라는 점이 다르므로,
+     주변(넓은 범위)의 밝기에서 그 지점의 밝기를 뺀 값이 큰 곳을 씨앗으로 씁니다.
+     넓은 범위 평균은 적분영상으로 한 번에 구합니다. */
+  const S=new Float64Array((w+1)*(h+1));
+  for(let y=0;y<h;y++){ let row=0;
+    for(let x=0;x<w;x++){ row+=B[y*w+x]; S[(y+1)*(w+1)+(x+1)]=S[y*(w+1)+(x+1)]+row; } }
+  const RW=Math.max(4,Math.round(Math.min(w,h)*0.22));
+  const boxMean=(x,y)=>{
+    const x0=Math.max(0,x-RW), y0=Math.max(0,y-RW), x1=Math.min(w,x+RW+1), y1=Math.min(h,y+RW+1);
+    const a=S[y1*(w+1)+x1]-S[y0*(w+1)+x1]-S[y1*(w+1)+x0]+S[y0*(w+1)+x0];
+    return a/((x1-x0)*(y1-y0));
+  };
+  const C=new Float32Array(n);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++) C[y*w+x]=boxMean(x,y)-B[y*w+x];
+  const seeds=[], used=new Uint8Array(n);
+  const supp=Math.max(3,Math.round(Math.min(w,h)*0.09));
+  for(let k=0;k<maxN;k++){
+    let bi=-1,bv=-1e9;
+    for(let i=0;i<n;i++){ if(used[i]) continue; if(C[i]>bv){bv=C[i];bi=i;} }
+    if(bi<0||bv<8) break;
+    const bx=bi%w, by=(bi-bx)/w;
+    seeds.push({x:bx/sc, y:by/sc, lum:B[bi], contrast:bv});
+    for(let y=Math.max(0,by-supp);y<Math.min(h,by+supp);y++)
+      for(let x=Math.max(0,bx-supp);x<Math.min(w,bx+supp);x++) used[y*w+x]=1;
+  }
+  seeds.push({x:E.vw/2, y:E.vh/2, lum:B[(Math.round(h/2)*w+Math.round(w/2))]||128, contrast:0});
+  return seeds;
+}
+/* ★ 인쇄된 링이 실제로 있는가 ★
+   표적은 검은 원 둘레에 등간격 링이 인쇄되어 있습니다. 문틀·게시판에는 없습니다.
+   후보로 좌표계를 세운 뒤, 예상되는 링 자리와 링 사이 자리의 밝기를 비교합니다.
+   진짜 표적이면 링 자리가 뚜렷하게 더 어둡습니다. 이것이 가장 확실한 근거입니다. */
+function ringEvidence(disc,im){
+  const H=affineFromEllipse(disc.cov,disc.cx,disc.cy,(CFG.dia*CFG.blackRatio)/2,0);
+  if(!H) return 0;
+  const {L,w,h,sc}=im;
+  const lum=(x,y)=>{ const xi=Math.round(x*sc), yi=Math.round(y*sc);
+    return (xi<0||yi<0||xi>=w||yi>=h)?NaN:L[yi*w+xi]; };
+  const ring=(CFG.dia/2)/CFG.rings, blackK=Math.round(CFG.rings*CFG.blackRatio);
+  let on=0,onC=0,off=0,offC=0;
+  for(let k=blackK+1;k<CFG.rings;k++){
+    for(let a=0;a<24;a++){
+      const t=a/24*Math.PI*2, cs=Math.cos(t), sn=Math.sin(t);
+      const p1=applyH(H,cs*ring*k, sn*ring*k);
+      const p2=applyH(H,cs*ring*(k+0.5), sn*ring*(k+0.5));
+      const v1=lum(p1.x,p1.y), v2=lum(p2.x,p2.y);
+      if(!isNaN(v1)){ on+=v1; onC++; }
+      if(!isNaN(v2)){ off+=v2; offC++; }
+    }
+  }
+  if(onC<40||offC<40) return 0;
+  return (off/offC)-(on/onC);        // 링 자리가 더 어두우면 양수
+}
+/* 후보를 점수로 매긴다 — 클수록·둥글수록·화면 안쪽일수록 좋다 */
+function scoreDisc(r){
+  if(!r||r.err) return -1;
+  const round=r.rmin/r.rmax;                       // 1 에 가까울수록 원
+  /* 태블릿을 30° 기울여도 0.87, 55° 기울여도 0.57 입니다.
+     0.55 아래는 표적이 아니라 문틀·게시판 같은 네모난 물체입니다. */
+  if(round<0.55) return -1;
+  const rad=(r.rmin+r.rmax)/2;
+  if(rad<E.vw*0.012) return -1;                    // 너무 작으면 오차가 큽니다
+  if(rad>E.vw*0.30) return -1;                     // 흑심이 화면의 60%를 넘을 수는 없습니다
+  if((r.contrast||0)<35) return -1;                // 흰 바탕 위의 검은 원이어야 합니다
+  if((r.A4||0)>0.055) return -1;                   // 4겹 성분이 크면 네모난 물체입니다
+  const dx=(r.cx-E.vw/2)/E.vw, dy=(r.cy-E.vh/2)/E.vh;
+  const centre=1/(1+2*(dx*dx+dy*dy));
+  const con=Math.min(1,(r.contrast||0)/120);
+  /* 인쇄된 링이 보이면 점수를 크게 올립니다 — 크기보다 이쪽이 훨씬 확실한 근거입니다 */
+  const ringB=1+Math.max(0,Math.min(3,(r.ring||0)/12));
+  return rad*round*round*centre*(0.4+0.6*con)*ringB*ringB;
+}
+function scanTarget(fast){
+  if(!E.vw) return null;
+  const seeds=darkSeeds(fast?7:10);
+  const im=grabLuma(fast?400:960);       // 한 장만 읽어 모든 후보에 함께 씁니다
+  let best=null,bestS=-1,lastErr=null;
+  for(const sd of seeds){
+    const r=fitBlackDisc(sd.x,sd.y,0,im);
+    if(r&&r.err){ lastErr=r.err; continue; }
+    if(scoreDisc(r)<0) continue;
+    r.ring=ringEvidence(r,im);
+    const sc=scoreDisc(r);
+    if(sc>bestS){ bestS=sc; best=r; }
+  }
+  return best?{disc:best,score:bestS}:{err:lastErr||'표적을 찾지 못했습니다.'};
 }
 /* 인쇄된 링 선에 맞춰 배율을 자동 보정
    ------------------------------------------------------------------
@@ -2276,9 +2527,14 @@ document.getElementById('tcCam').addEventListener('click',startCamera);
 document.getElementById('tcCalib').addEventListener('click',beginCalib);
 document.getElementById('tcBg').addEventListener('click',beginBg);
 document.getElementById('fsCancel').addEventListener('click',()=>{
-  E.mode='idle'; dragging=false; loupe.style.display='none'; hideHint(); exitFS(); updReady();
+  SCAN.on=false; E.mode='idle'; dragging=false; loupe.style.display='none';
+  hideHint(); exitFS(); updReady();
 });
 document.getElementById('fsDone').addEventListener('click',()=>{ hideHint(); exitFS(); });
+document.getElementById('fsApprove').addEventListener('click',approveScan);
+document.getElementById('fsZoomIn').addEventListener('click',()=>camZoom(+1));
+document.getElementById('fsZoomOut').addEventListener('click',()=>camZoom(-1));
+document.getElementById('fsTap').addEventListener('click',beginTapFit);
 /* 전체 화면의 미세 조정 단추는 교사 화면의 것과 같은 처리를 씁니다 */
 document.getElementById('fsBar').addEventListener('click',ev=>{
   const b=ev.target.closest('button[data-fit]'); if(!b) return;
@@ -2672,7 +2928,7 @@ if(location.protocol!=='https:'&&location.hostname!=='localhost')
 window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,ringMm,goTab,
   _ae:(v)=>{AE_ON=v;}, get _aeOn(){return AE_ON;},
   _grab:()=>grabROI(),
-  _resetT:()=>{ MB.key=''; }, _bp:(v)=>{BPR=v;},
+  _resetT:()=>{ MB.key=''; }, _bp:(v)=>{BPR=v;}, _scan:(f)=>scanTarget(f),
   _detectTh:(img,thR,thL,minA,maxA)=>detect(img,E.bg,E.pw,E.ph,thR,thL,minA,maxA),
   _detect:(img,bg,w,h)=>detect(img,bg,w,h,CFG.red,CFG.lum,CFG.minA,CFG.maxA),
   get roster(){return ROSTER;}, get rounds(){return ROUNDS;}, get shots(){return SHOTS;},
