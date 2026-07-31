@@ -500,16 +500,20 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
         <div class="row" style="margin-top:6px">
           <div style="flex:1 1 100%"><label class="fl">표적 프리셋</label>
             <select id="tcPreset">
+              <option value="lh4">LaserHIT 25M · 1:4 (A4 원본) — 기본</option>
               <option value="own300">샷라인 자체 표적 300mm</option>
-              <option value="lh4">LaserHIT 25M · 1:4 (A4 원본)</option>
               <option value="lh3">LaserHIT 25M · 1:3 (A4 133%)</option>
               <option value="lh2">LaserHIT 25M · 1:2 (A3 200%)</option>
               <option value="issf25">ISSF 25m 원본 500mm</option>
               <option value="custom">직접 입력</option>
             </select></div>
           <div style="flex:1 1 45%"><label class="fl">캘리브레이션 기준(mm)</label><input type="number" id="tcCalibMm" step="0.5"></div>
-          <div style="flex:1 1 45%"><label class="fl">채점 링 지름(mm)</label><input type="number" id="tcDia" step="0.5"></div>
+          <div style="flex:1 1 45%"><label class="fl">채점 링 지름(mm)<i>최외곽 링의 바깥 지름</i></label><input type="number" id="tcDia" step="0.5"></div>
           <div style="flex:1 1 45%"><label class="fl">링 수</label><input type="number" id="tcRings" step="1"></div>
+          <p class="note" style="flex:1 1 100%;margin:4px 0 0">
+          <b>인쇄물을 자로 재서 넣으십시오.</b> LaserHIT 25M을 A4에 원본 크기로 인쇄하면
+          최외곽 링 지름이 <b>125mm</b>입니다 (원본 500mm의 1:4).
+          이 값이 틀려도 점수는 맞지만 <b>거리(mm)가 그 비율만큼 틀리게 기록됩니다.</b></p>
           <div style="flex:1 1 45%"><label class="fl">흑심 비율<i></i></label><input type="number" id="tcBlack" step="0.01" min="0.1" max="0.9"></div>
           <div style="flex:1 1 45%"><label class="fl">최소 면적(px)</label><input type="number" id="tcMinA" step="1" min="1"></div>
           <div style="flex:1 1 45%"><label class="fl">확정 프레임 수<i>2 이상이면 잡음에 강함</i></label><input type="number" id="tcMinF" step="1" min="1" max="6"></div>
@@ -625,8 +629,11 @@ const PRESETS={
   issf25:{mode:'ring',calib:500,dia:500,rings:10}
 };
 const CFG=Object.assign({
-  preset:'own300',mode:'square',calib:300,dia:300,rings:10,
-  perRound:10, blackRatio:0.4, red:50,lum:50,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
+  /* 실제로 쓰는 표적이 LaserHIT 25M(1:4 인쇄)이므로 이것을 기본으로 둡니다.
+     받은 설정 파일에는 dia 300 이 들어 있었는데, 그러면 점수는 맞지만
+     보고되는 거리(탄착군 mm 등)가 2.4배로 부풀려집니다. */
+  preset:'lh4',mode:'square',calib:125,dia:125,rings:10,
+  perRound:10, blackRatio:0.4, red:100,lum:100,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
   serverUrl:''
 }, load(K.cfg,{}));
 function saveCfg(){ save(K.cfg,CFG); MAXB=CFG.maxBlobs||3; }
@@ -775,6 +782,72 @@ function adaptBg(d,bg,n,ae){
     bg.mR[i]+=(d[p]-bg.mR[i])*K; bg.mG[i]+=(d[p+1]-bg.mG[i])*K; bg.mB[i]+=(d[p+2]-bg.mB[i])*K;
   }
 }
+/* ★★ 화면 흔들림 보정 ★★
+   실제 교실 자료를 받아 보니, 신호 측정 236프레임이 236프레임 모두
+   '배경 불일치'로 버려지고 있었습니다. 원인은 두 가지가 겹친 것이었습니다.
+
+     ① 표적이 **망점(halftone)으로 인쇄**되어 있습니다. 확대해 보면 점무늬입니다.
+        점 간격이 카메라 화소 크기와 비슷해 화면 전체가 잘디잔 경계로 가득합니다.
+     ② 거치대에 두어도 태블릿은 **0.2~0.4화소씩 끊임없이 흔들립니다.**
+
+   경계에서 0.3화소만 밀려도 밝기가 40단계씩 출렁입니다. 배경을 한 번 학습해 두고
+   빼는 방식은 이 앞에서 무력합니다. 화면 전체가 '변한 것'으로 보이니까요.
+   교사가 "1시·5시·7시·11시의 25M 네모를 분주하게 인식한다"고 한 것이 바로 이것입니다.
+   그 네모들이 화면에서 경계가 가장 뚜렷한 곳이기 때문입니다.
+
+   해법 — 밀린 만큼을 계산해서 되돌립니다.
+   밀림이 (dx,dy)라면 밝기 변화는 대략 (기울기)·(dx,dy) 입니다. 그러므로
+   화면 전체에서 최소제곱으로 (dx,dy)를 구해 그만큼을 빼면 경계 출렁임이 사라집니다.
+   레이저는 기울기와 무관한 '새로 더해진 빛'이므로 그대로 남습니다. */
+function buildBgGrad(bg,w,h){
+  const n=w*h;
+  const L=new Float32Array(n), Xc=new Float32Array(n);
+  for(let i=0;i<n;i++){
+    L[i]=0.30*bg.mR[i]+0.59*bg.mG[i]+0.11*bg.mB[i];
+    Xc[i]=bg.mR[i]-0.5*(bg.mG[i]+bg.mB[i]);
+  }
+  const mk=(A)=>{
+    const gx=new Float32Array(n), gy=new Float32Array(n);
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const i=y*w+x;
+      gx[i]=0.5*((x<w-1?A[i+1]:A[i])-(x>0?A[i-1]:A[i]));
+      gy[i]=0.5*((y<h-1?A[i+w]:A[i])-(y>0?A[i-w]:A[i])); }
+    return {gx,gy};
+  };
+  const a=mk(L), b=mk(Xc);
+  const gm=new Float32Array(n);
+  for(let i=0;i<n;i++) gm[i]=Math.hypot(a.gx[i],a.gy[i]);
+  // 신호와 같은 잣대로 쓰려면 기울기도 3×3 평균을 해 둡니다
+  const tmp=new Float32Array(n), sm=new Float32Array(n);
+  box3(gm,sm,tmp,w,h);
+  bg.gxL=a.gx; bg.gyL=a.gy; bg.gxE=b.gx; bg.gyE=b.gy; bg.gmS=sm; bg.gradN=n;
+}
+/* 최소제곱으로 화면 전체의 밀림(dx,dy)을 구한다 — 한 번 훑으면 끝납니다 */
+function solveShift(rl,bg,n,w){
+  const gx=bg.gxL, gy=bg.gyL; if(!gx) return {dx:0,dy:0};
+  const step = n>40000 ? 3 : 1;
+  let Sxx=0,Sxy=0,Syy=0,Sxr=0,Syr=0;
+  for(let i=0;i<n;i+=step){ const a=gx[i], b=gy[i], r=rl[i];
+    Sxx+=a*a; Sxy+=a*b; Syy+=b*b; Sxr+=a*r; Syr+=b*r; }
+  const det=Sxx*Syy-Sxy*Sxy;
+  if(!(Math.abs(det)>1e-6)) return {dx:0,dy:0};
+  let dx=( Syy*Sxr - Sxy*Syr)/det, dy=(-Sxy*Sxr + Sxx*Syr)/det;
+  if(!isFinite(dx)||!isFinite(dy)) return {dx:0,dy:0};
+  /* 한 번 더 — 레이저나 가려진 부분처럼 크게 튀는 화소는 빼고 다시 풉니다 */
+  let s2=0,c2=0;
+  for(let i=0;i<n;i+=step){ const e=rl[i]-gx[i]*dx-gy[i]*dy; s2+=e*e; c2++; }
+  const lim=3.5*Math.sqrt(s2/Math.max(1,c2));
+  Sxx=Sxy=Syy=Sxr=Syr=0;
+  for(let i=0;i<n;i+=step){ const a=gx[i], b=gy[i], r=rl[i];
+    if(Math.abs(r-a*dx-b*dy)>lim) continue;
+    Sxx+=a*a; Sxy+=a*b; Syy+=b*b; Sxr+=a*r; Syr+=b*r; }
+  const d2=Sxx*Syy-Sxy*Sxy;
+  if(Math.abs(d2)>1e-6){
+    const nx=( Syy*Sxr - Sxy*Syr)/d2, ny=(-Sxy*Sxr + Sxx*Syr)/d2;
+    if(isFinite(nx)&&isFinite(ny)){ dx=nx; dy=ny; }
+  }
+  const cap=3;
+  return {dx:Math.max(-cap,Math.min(cap,dx)), dy:Math.max(-cap,Math.min(cap,dy))};
+}
 const buf={w:null,l:null,lb:null,st:null,n:0};
 function ensure(n){
   if(buf.n<n){ buf.w=new Float32Array(n);buf.l=new Float32Array(n);
@@ -801,6 +874,78 @@ function ensure(n){
    화면의 신호값은 이제 **잡음의 몇 배인지 ×10** 입니다. 40이면 4배(4σ)입니다.
    밝은 백지와 검은 흑심은 잡음 크기가 다르므로 밝기 구간을 넷으로 나눠 따로 잽니다. */
 
+/* ★★ 시간 띠통과 ★★
+   실제 교실 자료로 확인한 사실:
+     · 표적이 망점(halftone)으로 인쇄되어 있어 화면이 잘디잔 경계로 가득합니다.
+     · 배경 학습은 60프레임 평균인데, 그 60프레임 동안 태블릿이 흔들리므로
+       평균 영상에서는 망점이 뭉개집니다.
+     · 그러면 '선명한 현재 프레임 − 뭉개진 배경' 이 되어, 레이저와 무관하게
+       화면 전체에 큰 차이가 남습니다. 실측하니 레이저(322)와 잡음(327)이
+       구분되지 않았습니다. 어떤 임계값으로도 가를 수 없습니다.
+
+   그래서 비교 대상을 바꿉니다. 오래된 배경이 아니라 **0.1초 전후의 자기 자신**과
+   비교합니다.  d(t) = I(t−3) − ( I(t) + I(t−6) ) / 2
+     · 흔들림·조명 변화는 시간에 따라 매끄럽게 변하므로 앞뒤 평균과 상쇄됩니다.
+     · 레이저는 4~6프레임만 켜지는 순간 신호라 앞뒤에는 없으므로 그대로 남습니다.
+   망점이든 글자든 인쇄물의 무늬는 앞뒤 프레임에도 똑같이 있으므로 사라집니다.
+   대가는 0.1초의 지연뿐이고, 사격 기록에는 아무 영향이 없습니다. */
+/* 앞뒤 5프레임(0.17초)을 봅니다. 펄스가 120ms(4프레임)이므로 기준 프레임에는
+   레이저가 절대 걸리지 않습니다. ±3 이었을 때는 펄스가 기준에 걸쳐 신호가
+   반으로 깎이고, 다섯 발 중 두 발만 잡혔습니다. */
+const TB={L:[],X:[],n:0,idx:0,cnt:0,K:11,D:5,gx:null,gy:null,wa:null,wb:null,wc:null,wd:null};
+function tbEnsure(n){
+  if(TB.n!==n){ TB.L=[];TB.X=[];
+    for(let i=0;i<TB.K;i++){ TB.L.push(new Float32Array(n)); TB.X.push(new Float32Array(n)); }
+    TB.gx=new Float32Array(n); TB.gy=new Float32Array(n);
+    TB.wa=new Float32Array(n); TB.wb=new Float32Array(n);
+    TB.wc=new Float32Array(n); TB.wd=new Float32Array(n);
+    TB.n=n; TB.idx=0; TB.cnt=0; }
+}
+/* 기준 프레임의 기울기 */
+function tbGrad(A,w,h){
+  const gx=TB.gx, gy=TB.gy;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const i=y*w+x;
+    gx[i]=0.5*((x<w-1?A[i+1]:A[i])-(x>0?A[i-1]:A[i]));
+    gy[i]=0.5*((y<h-1?A[i+w]:A[i])-(y>0?A[i-w]:A[i])); }
+}
+/* B 가 A 에 대해 얼마나 밀렸는지 (최소제곱, 이상치 한 번 걸러냄) */
+function tbShift(A,B,w,h,n){
+  const gx=TB.gx, gy=TB.gy, step=n>40000?2:1;
+  let dx=0,dy=0;
+  for(let it=0; it<2; it++){
+    let Sxx=0,Sxy=0,Syy=0,Sxr=0,Syr=0,lim=1e9;
+    if(it===1){ let s2=0,c2=0;
+      for(let i=0;i<n;i+=step){ const e=(B[i]-A[i])-gx[i]*dx-gy[i]*dy; s2+=e*e; c2++; }
+      lim=3.0*Math.sqrt(s2/Math.max(1,c2)); }
+    for(let i=0;i<n;i+=step){
+      const a=gx[i],b=gy[i],r=B[i]-A[i];
+      if(it===1 && Math.abs(r-a*dx-b*dy)>lim) continue;
+      Sxx+=a*a; Sxy+=a*b; Syy+=b*b; Sxr+=a*r; Syr+=b*r; }
+    const det=Sxx*Syy-Sxy*Sxy;
+    if(!(Math.abs(det)>1e-6)) break;
+    const nx=( Syy*Sxr - Sxy*Syr)/det, ny=(-Sxy*Sxr + Sxx*Syr)/det;
+    if(!isFinite(nx)||!isFinite(ny)) break;
+    dx=Math.max(-4,Math.min(4,nx)); dy=Math.max(-4,Math.min(4,ny));
+  }
+  return {dx,dy};
+}
+/* B 를 (dx,dy) 만큼 되돌려 A 와 겹치도록 다시 뜬다 (겹선형 보간) */
+function tbWarp(B,out,w,h,dx,dy){
+  for(let y=0;y<h;y++){
+    const sy=y-dy; let y0=Math.floor(sy); let fy=sy-y0;
+    if(y0<0){y0=0;fy=0;} if(y0>h-2){y0=h-2;fy=1;}
+    const r0=y0*w, r1=r0+w;
+    for(let x=0;x<w;x++){
+      const sx=x-dx; let x0=Math.floor(sx); let fx=sx-x0;
+      if(x0<0){x0=0;fx=0;} if(x0>w-2){x0=w-2;fx=1;}
+      const a=B[r0+x0],b=B[r0+x0+1],c=B[r1+x0],d2=B[r1+x0+1];
+      out[y*w+x]=(a+(b-a)*fx)+((c+(d2-c)*fx)-(a+(b-a)*fx))*fy;
+    }
+  }
+}
+function tbReset(){ TB.cnt=0; TB.idx=0; }
+const EDGE=4;      // 가장자리 제외 폭(화소)
+let GRAD_K=0;      // 시간 띠통과를 쓰면 기울기 보정이 필요 없습니다 (실측으로 확인)
 const MB={rl:null,rr:null,tp:null,al:null,ar:null,z:null,bd:null,n:0,key:''};
 function mbEnsure(n,key){
   if(MB.n<n){ MB.rl=new Float32Array(n);MB.rr=new Float32Array(n);MB.tp=new Float32Array(n);
@@ -868,25 +1013,74 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
   const wgt=buf.w,lum=buf.l,lab=buf.lb,st=buf.st;
   const rl=MB.rl,rr=MB.rr,al=MB.al,ar=MB.ar,z=MB.z,bd=MB.bd;
 
-  /* ① 잔차 — 배경 대비 변화량. 밝기 성분과 '붉은 정도' 성분을 따로 만듭니다. */
+  /* ① 잔차 — 0.1초 전후의 자기 자신과 비교합니다 (시간 띠통과) */
+  tbEnsure(n);
+  const curL=TB.L[TB.idx], curX=TB.X[TB.idx];
+  for(let i=0,p=0;i<n;i++,p+=4){
+    curL[i]=0.30*d[p]+0.59*d[p+1]+0.11*d[p+2];
+    curX[i]=d[p]-0.5*(d[p+1]+d[p+2]);
+  }
+  const K=TB.K, D=TB.D, iCur=TB.idx, mid=(iCur-D+K)%K, old=(iCur-2*D+K)%K;
+  TB.idx=(iCur+1)%K; if(TB.cnt<K) TB.cnt++;
+  const tOK = TB.cnt>=K;
+  /* ★ 세 프레임을 먼저 겹칩니다 ★
+     0.1초 사이의 밀림은 1화소 미만이라, 기준 프레임의 기울기로 정확히 풀립니다.
+     (오래된 평균 배경과 달리 세 프레임 모두 망점이 선명하게 살아 있으므로
+      이 계산이 성립합니다. 이것이 앞서 실패한 방식과의 결정적 차이입니다.) */
+  let AL=null, AO=null, AXL=null, AXO=null;
+  if(tOK){
+    const Lm=TB.L[mid];
+    tbGrad(Lm,w,h);
+    const sc=tbShift(Lm,TB.L[iCur],w,h,n);
+    const so=tbShift(Lm,TB.L[old], w,h,n);
+    tbWarp(TB.L[iCur],TB.wa,w,h,sc.dx,sc.dy);
+    tbWarp(TB.L[old], TB.wb,w,h,so.dx,so.dy);
+    tbWarp(TB.X[iCur],TB.wc,w,h,sc.dx,sc.dy);
+    tbWarp(TB.X[old], TB.wd,w,h,so.dx,so.dy);
+    AL=TB.wa; AO=TB.wb; AXL=TB.wc; AXO=TB.wd;
+    E.tbShift={a:sc,b:so};
+  }
   let drift=0;
   for(let i=0,p=0;i<n;i++,p+=4){
     const bR=bg.mR[i],bG=bg.mG[i],bB=bg.mB[i];
-    const dR=d[p]-bR-oR,dG=d[p+1]-bG-oG,dB=d[p+2]-bB-oB;
     const yb=0.30*bR+0.59*bG+0.11*bB;
     let b=(yb*0.015625)|0; if(b>3)b=3; if(b<0)b=0;   // /64
     bd[i]=b;
-    const yd=0.30*dR+0.59*dG+0.11*dB;
+    let yd, xd;
+    if(tOK){
+      /* 앞뒤 두 프레임 중 **어두운 쪽**을 기준으로 삼습니다.
+         평균을 쓰면 한쪽에 레이저가 조금이라도 걸칠 때 신호가 깎입니다.
+         레이저는 빛을 더하기만 하므로 어두운 쪽이 언제나 '레이저 없는 상태'입니다. */
+      yd=TB.L[mid][i]-(AL[i]<AO[i]?AL[i]:AO[i]);
+      xd=TB.X[mid][i]-(AXL[i]<AXO[i]?AXL[i]:AXO[i]);
+    } else {
+      const dR=d[p]-bR-oR,dG=d[p+1]-bG-oG,dB=d[p+2]-bB-oB;
+      yd=0.30*dR+0.59*dG+0.11*dB; xd=dR-0.5*(dG+dB);
+    }
     rl[i]=yd;
     /* ★ 적색 초과분 ★
        카메라는 영상을 YUV로 내보내므로 R·G·B가 같은 밝기 잡음을 공유합니다.
-       (dR - (dG+dB)/2) 는 그 공통 잡음을 서로 상쇄시키고 '붉은 정도'만 남깁니다.
-       가중합(dR + (dG+dB)/2)으로 바꿔 실측해 보았더니 오히려 검출이 5발→3발로
-       떨어졌습니다. 채널 잡음이 독립이라는 가정이 카메라에서는 성립하지 않습니다. */
-    rr[i]=dR-0.5*(dG+dB);
+       (R - (G+B)/2) 는 그 공통 잡음을 서로 상쇄시키고 '붉은 정도'만 남깁니다. */
+    rr[i]=xd;
     lum[i]= yd>0 ? yd/(yb>REF_BG?yb:REF_BG) : 0;     // 무게중심용 (반사율 보정)
     drift+= yd>0?yd:-yd;
   }
+  /* ①-b 화면 밀림 보정 — 경계에서 생기는 출렁임을 제거합니다 */
+  let SH={dx:0,dy:0};
+  if(!tOK && bg.gxL&&bg.gradN===n){
+    SH=solveShift(rl,bg,n,w);
+    const gxL=bg.gxL,gyL=bg.gyL,gxE=bg.gxE,gyE=bg.gyE,dx=SH.dx,dy=SH.dy;
+    if(dx||dy){
+      let ab=0;
+      for(let i=0;i<n;i++){
+        rl[i]-=gxL[i]*dx+gyL[i]*dy;
+        rr[i]-=gxE[i]*dx+gyE[i]*dy;
+        ab+= rl[i]>0?rl[i]:-rl[i];
+      }
+      drift=ab;
+    }
+  }
+  E.shift=SH;
   /* ② 공간 정합 — 3×3 평균 뒤, 주변 밝기를 빼서 '점만' 남깁니다(띠통과).
      조명 얼룩·그림자·색 얼룩은 넓게 퍼져 있으므로 주변과 함께 빠지고,
      레이저처럼 몇 화소짜리 점은 그대로 남습니다. 점광원 검출의 정석입니다. */
@@ -897,23 +1091,38 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
   /* ④ 잡음 대비 환산 */
   bandScales(al,bd,n,SCL); bandScales(ar,bd,n,SCR);
 
+  /* ④-b 경계에서는 잣대를 키웁니다.
+     밀림 보정을 해도 회전·렌즈 왜곡 때문에 조금씩 남습니다. 그 잔여분은
+     기울기에 비례하므로, 경계가 센 곳일수록 더 큰 신호를 요구하게 만듭니다.
+     평평한 종이 위에서는 아무 영향이 없고, 인쇄 선·글자 위에서만 둔해집니다. */
+  const gmS=(bg.gmS&&bg.gradN===n)?bg.gmS:null;
+  const KG=GRAD_K;
   let any=false,maxRed=0,maxLum=0,mrx=-1,mry=-1,mlx=-1,mly=-1;
   for(let i=0;i<n;i++){
     const b=bd[i];
-    const zl=10*al[i]/SCL[b], zr=10*ar[i]/SCR[b];
+    const ge=gmS?KG*gmS[i]:0;
+    const dl=ge>0?Math.sqrt(SCL[b]*SCL[b]+ge*ge):SCL[b];
+    const dr=ge>0?Math.sqrt(SCR[b]*SCR[b]+ge*ge):SCR[b];
+    const zl=10*al[i]/dl, zr=10*ar[i]/dr;
     if(zr>maxRed){maxRed=zr;mrx=i%w;mry=(i-i%w)/w;}
     if(zl>maxLum){maxLum=zl;mlx=i%w;mly=(i-i%w)/w;}
     const v=Math.max(zr/thRed, zl/thLum);
     z[i]=Math.max(zl,zr);
     wgt[i]=v>1?v:0; lab[i]=v>1?-1:0; if(v>1)any=true;
+    /* 화면 가장자리는 정렬 보간이 성립하지 않아 가짜 신호가 납니다 */
+    { const x=i%w, y=(i-x)/w;
+      if(x<EDGE||y<EDGE||x>=w-EDGE||y>=h-EDGE){ wgt[i]=0; lab[i]=0; z[i]=0; } }
   }
   const stats={maxRed,maxLum,flood:false,redAt:mrx<0?null:{x:mrx,y:mry},lumAt:mlx<0?null:{x:mlx,y:mly},
                ae:ae, aeMag:Math.max(Math.abs(ae.r),Math.abs(ae.g),Math.abs(ae.b)),
                scale:SCL[3]||SCL[2]||1,
                rej:{area:0,peak:0,shape:0,many:0,flood:0,none:0}};
   /* 화면 전체가 통째로 달라졌다 = 카메라가 움직였거나 조명이 바뀐 것 */
-  stats.resid=drift/n;
-  if(stats.resid>6){ stats.flood=true; stats.rej.flood=1; return {blobs:[],stats}; }
+  stats.resid=drift/n; stats.shift=SH;
+  /* 밀림을 보정한 뒤의 잔차로 판단합니다.
+     예전에는 보정 없이 판단해, 망점 인쇄물에서는 모든 프레임이 여기서 버려졌습니다
+     (실제 자료에서 236프레임 중 236프레임). */
+  if(stats.resid>14){ stats.flood=true; stats.rej.flood=1; return {blobs:[],stats}; }
   if(!any){ stats.rej.none=1; return {blobs:[],stats}; }
 
   const blobs=[];
@@ -943,7 +1152,12 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
   stats.blobRed=0; stats.blobLum=0;
   for(const b of blobs){ if(b.mR>stats.blobRed)stats.blobRed=b.mR; if(b.mL>stats.blobLum)stats.blobLum=b.mL; }
   stats.blobCount=blobs.length;
-  if(blobs.length>MAXB){ stats.noisy=true; stats.rej.many=blobs.length; return {blobs:[],stats}; }
+  /* 덩어리가 여럿이면 예전에는 그 프레임을 통째로 버렸습니다. 그런데 실제 자료로
+     확인해 보니, 잡음 덩어리가 몇 개 끼는 순간 **진짜 탄착까지 함께 버려져** 다섯 발
+     중 두세 발을 놓치고 있었습니다. 이제는 가장 강한 하나만 남깁니다.
+     유령은 뒤의 '연속 프레임 수 · 재격발 대기 · 연발 감지'가 막습니다. */
+  if(blobs.length>MAXB){ stats.noisy=true; stats.rej.many=blobs.length;
+    return {blobs:blobs.slice(0,1),stats}; }
   return {blobs,stats};
 }
 
@@ -1456,7 +1670,9 @@ function tick(){
     if(E.bgCount>=BG_FRAMES){
       const k=1/bg.cnt; bg.mR=new Float32Array(bg.n);bg.mG=new Float32Array(bg.n);bg.mB=new Float32Array(bg.n);
       for(let i=0;i<bg.n;i++){ bg.mR[i]=bg.sR[i]*k;bg.mG[i]=bg.sG[i]*k;bg.mB[i]=bg.sB[i]*k; }
-      bg.sR=bg.sG=bg.sB=null; bg.ready=true; E.mode='idle';
+      bg.sR=bg.sG=bg.sB=null;
+      buildBgGrad(bg,E.pw||E.roi.w,E.ph||E.roi.h); tbReset();
+      bg.ready=true; E.mode='idle';
       badge.textContent='준비 완료'; log('배경 학습 완료'); updReady(); refreshFireState();
     }
   } else if(E.mode==='raw'&&E.bg&&E.bg.ready&&E.bg.mR){
@@ -1476,8 +1692,8 @@ function tick(){
          ② 75 (잡음의 7.5배) — 실측상 이 위에서는 어두운 레이저를 놓칩니다.
          검증 중에 누가 실수로 쏘면 그게 '유령'으로 세어져 임계값이 계속 올라가는데,
          ②가 없으면 그 한 번의 실수로 수업 내내 검출이 안 됩니다. */
-      const capR=Math.min(75, Math.max(45, Math.round((E.probe.red||999)*0.7)));
-      const capL=Math.min(75, Math.max(45, Math.round((E.probe.lum||999)*0.7)));
+      const capR=Math.min(220, Math.max(60, Math.round((E.probe.red||999)*0.7)));
+      const capL=Math.min(220, Math.max(60, Math.round((E.probe.lum||999)*0.7)));
       if(VF.round>=5 || CFG.red>=capR || CFG.lum>=capL){ endVerify(false); }
       else { VF.round++;
         CFG.red=Math.min(capR,Math.round(CFG.red*1.2));
@@ -2741,10 +2957,16 @@ function bgBrightness(){
    신호가 아주 강해도 7배를 넘겨 잡지 않습니다 — 여유를 두면 놓치는 발이 생깁니다. */
 function autoTh(pr){
   const sig=Math.max(pr.red||0,pr.lum||0), nz=Math.max(pr.noiseRed||0,pr.noiseLum||0);
-  const gm=Math.sqrt(Math.max(nz,10)*Math.max(sig,10));
-  /* 실측 결과 45 아래에서는 센서 잡음이 규칙적으로 올라와 유령 탄착이 생기고,
-     75 위에서는 어두운 레이저를 놓칩니다. 그 사이에서만 정합니다. */
-  return Math.round(Math.min(75,Math.max(45,gm)));
+  /* 잡음 값은 '아주 관대한 관문'에서 잰 것이라 실제 운영 임계값보다 부풀려져 있습니다.
+     그 값으로 기하평균을 내면 임계값이 너무 높게 잡혀 진짜 탄착까지 잘립니다
+     (실측: 잡음 121·신호 201 → 156으로 설정되어 5발 모두 놓쳤습니다).
+     그래서 **신호의 절반**에서 시작하고, 실제로 유령이 나오면 그때 검증 단계가
+     올리도록 역할을 나눕니다. */
+  const gm=Math.max(0.5*sig, 0.9*nz);
+  /* 시간 띠통과로 바꾸면서 잡음의 성격이 달라졌습니다. 망점 인쇄물 + 거치대 진동
+     환경을 재현해 실측한 결과, 안정적인 구간은 잡음의 6~20배였습니다.
+     기기·조명·거치 상태에 따라 달라지므로 폭을 넓게 두고 측정값이 정하게 합니다. */
+  return Math.round(Math.min(220,Math.max(60,gm)));
 }
 function updProbe(){
   const pr=E.probe, bb=bgBrightness();
@@ -2784,10 +3006,11 @@ function updProbe(){
     h+='<span class="tag bad">신호 없음</span> 카메라가 레이저를 전혀 못 보고 있습니다.<br>'
       +'① 레이저가 <b>표적 안</b>을 비추는지 ② 방아쇠를 당길 때 실제로 켜지는지 ③ 배경 학습 뒤 카메라가 움직이지 않았는지<br>'
       +'④ 아두이노 <b>PULSE_MS 를 150~200</b>으로 늘려 보십시오.';
-  } else if(sig < 45 || sig < noise*1.25){
+  } else if(sig < 60 || sig < noise*1.25){
     /* 단위가 '잡음의 몇 배 ×10' 이므로 34 = 3.4배. 이보다 낮으면 잡음과 겹칩니다. */
     h+=`<span class="tag bad">신호가 약합니다</span> 레이저 <b>잡음의 ${(sig/10).toFixed(1)}배</b>`
-      +` · 안 쏠 때 ${(noise/10).toFixed(1)}배 — 안정적으로 가르려면 <b>4.5배 이상</b>이어야 합니다.<br>`
+      +` · 안 쏠 때 ${(noise/10).toFixed(1)}배 — 안정적으로 가르려면 <b>6배 이상</b>이어야 합니다.<br>`
+      +'· <b>태블릿 거치를 단단히 하십시오.</b> 미세한 흔들림이 인쇄된 망점과 만나면 잡음이 크게 늘어납니다<br>'
       +'· 조명을 낮추십시오 (바탕 '+bb.toFixed(0)+')<br>'
       +'· 태블릿을 표적에 더 가까이 두거나 레이저를 더 밝게 하십시오<br>'
       +'· 아두이노 <b>PULSE_MS 를 150~200</b>으로 늘리면 신호가 쌓여 커집니다';
@@ -3114,6 +3337,7 @@ window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,ringMm,goTab,
   _ae:(v)=>{AE_ON=v;}, get _aeOn(){return AE_ON;},
   _grab:()=>grabROI(),
   _resetT:()=>{ MB.key=''; }, _bp:(v)=>{BPR=v;}, _scan:(f)=>scanTarget(f),
+  _gk:(v)=>{GRAD_K=v;}, get _gradK(){return GRAD_K;}, _tbReset:()=>tbReset(),
   _detectTh:(img,thR,thL,minA,maxA)=>detect(img,E.bg,E.pw,E.ph,thR,thL,minA,maxA),
   _detect:(img,bg,w,h)=>detect(img,bg,w,h,CFG.red,CFG.lum,CFG.minA,CFG.maxA),
   get roster(){return ROSTER;}, get rounds(){return ROUNDS;}, get shots(){return SHOTS;},
