@@ -377,16 +377,23 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
       <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
         <h3 style="font-size:14px;margin:0 0 6px">레이저가 안 잡힐 때 — 신호 측정</h3>
         <p class="note" style="margin:0 0 8px">임계값을 감으로 만지지 마십시오.
-        <b>신호 측정</b>을 켜고 표적에 레이저를 쏘면, 카메라가 실제로 무엇을 보고 있는지 숫자로 나옵니다.</p>
+        <b>①먼저 3초간 쏘지 않고 잡음을 재고, ②그 뒤에 레이저를 쏩니다.</b>
+        두 값을 알아야 그 사이에 임계값을 놓을 수 있습니다.</p>
         <div class="row">
           <button class="warn" id="tcProbe" disabled>신호 측정 시작</button>
-          <button class="ghost sm" id="tcProbeReset" style="flex:0 1 28%">초기화</button>
+          <button class="ghost sm" id="tcProbeReset" style="flex:0 1 28%">다시 재기</button>
         </div>
+        <div class="row" style="margin-top:7px">
+          <button class="ghost" id="tcRaw" disabled>카메라가 보는 것 (원시 신호)</button>
+        </div>
+        <p class="note" id="tcRawInfo" style="margin-top:6px"></p>
+        <p class="note" style="margin-top:4px">태블릿 카메라는 밝기·색온도를 스스로 계속 조정합니다.
+        앱이 매 프레임 그 흔들림을 빼내므로(<b>노출보정</b> 숫자) 값이 ±10을 넘어도 그대로 진행하시면 됩니다.</p>
         <div id="tcProbeBox" style="display:none;margin-top:9px">
           <dl class="stats q4">
             <div><dt>바탕 밝기</dt><dd id="pvBg" style="font-size:16px">–</dd></div>
-            <div><dt>적색 최대</dt><dd id="pvRed" style="font-size:16px">–</dd></div>
-            <div><dt>밝기 최대</dt><dd id="pvLum" style="font-size:16px">–</dd></div>
+            <div><dt>잡음 바닥</dt><dd id="pvNoise" style="font-size:16px">–</dd></div>
+            <div><dt>레이저 신호</dt><dd id="pvRed" style="font-size:16px">–</dd></div>
             <div><dt>검출</dt><dd id="pvHit" style="font-size:16px">–</dd></div>
           </dl>
           <p class="note" id="pvAdvice"></p>
@@ -400,6 +407,15 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
           <button class="ghost sm" id="tcTestClear" style="flex:0 1 28%">지우기</button>
         </div>
         <p class="note" id="tcTestInfo"></p>
+        <div class="row" style="margin-top:7px">
+          <button class="ghost sm" id="tcShortPulse">짧은 펄스 모드 (1프레임도 인정)</button>
+        </div>
+        <div class="row" style="margin-top:7px">
+          <button class="ghost sm" id="tcSmallDot">작은 점 모드 (2화소도 인정)</button>
+        </div>
+        <p class="note"><b>레이저는 보이는데 발로 기록되지 않을 때</b> 눌러 보십시오.
+        펄스가 짧아 한 프레임에만 잡히는 경우에 대응합니다. 대신 잡음에 약해지므로,
+        켠 뒤에는 반드시 <b>신호 측정</b>의 검증을 다시 통과시키십시오.</p>
       </div>
       <details>
         <summary>표적 규격 · 검출 파라미터</summary>
@@ -418,6 +434,9 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
           <div style="flex:1 1 45%"><label class="fl">링 수</label><input type="number" id="tcRings" step="1"></div>
           <div style="flex:1 1 45%"><label class="fl">흑심 비율<i></i></label><input type="number" id="tcBlack" step="0.01" min="0.1" max="0.9"></div>
           <div style="flex:1 1 45%"><label class="fl">최소 면적(px)</label><input type="number" id="tcMinA" step="1" min="1"></div>
+          <div style="flex:1 1 45%"><label class="fl">확정 프레임 수<i>2 이상이면 잡음에 강함</i></label><input type="number" id="tcMinF" step="1" min="1" max="6"></div>
+          <div style="flex:1 1 45%"><label class="fl">재격발 대기(ms)</label><input type="number" id="tcCool" step="50" min="100"></div>
+          <div style="flex:1 1 45%"><label class="fl">프레임당 최대 덩어리<i>넘으면 그 프레임 폐기</i></label><input type="number" id="tcMaxB" step="1" min="1" max="8"></div>
           <div style="flex:1 1 45%"><label class="fl">회차당 발수</label><input type="number" id="tcPerRound" step="1"></div>
           <div style="flex:1 1 45%"><label class="fl">적색 임계값</label><input type="number" id="tcRed" step="1"></div>
           <div style="flex:1 1 45%"><label class="fl">밝기 임계값</label><input type="number" id="tcLum" step="1"></div>
@@ -529,10 +548,10 @@ const PRESETS={
 };
 const CFG=Object.assign({
   preset:'own300',mode:'square',calib:300,dia:300,rings:10,
-  perRound:10, blackRatio:0.4, red:22,lum:38,minA:4,maxA:900,minF:1,cool:300,
+  perRound:10, blackRatio:0.4, red:22,lum:38,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
   serverUrl:''
 }, load(K.cfg,{}));
-function saveCfg(){ save(K.cfg,CFG); }
+function saveCfg(){ save(K.cfg,CFG); MAXB=CFG.maxBlobs||3; }
 
 /* 코칭 규칙 임계값은 '링 폭' 단위로 둔다.
    설계기록의 규칙표는 300mm 표적(1링 15mm) 기준으로 쓰였으므로 링 단위로 환산해 두면
@@ -638,7 +657,46 @@ function refreshLocks(){
 
 /* ===================== 카메라 · 검출 엔진 ===================== */
 const HR_MIN=12, ABS_GATE=7, REF_ABS=55, REF_BG=30;
+let MAXB=3;   // 한 프레임에 허용하는 최대 덩어리 수 (CFG.maxBlobs 와 동기화)
 function norm(d,bg){ const h=255-bg>HR_MIN?255-bg:HR_MIN; const a=d/h,b=d/REF_ABS; return a>b?a:b; }
+/* ★ 자동노출·화이트밸런스 흔들림 보정 ★
+   아이패드 카메라는 노출과 색온도를 계속 스스로 조정합니다. 아무도 쏘지 않아도
+   화면 전체가 통째로 밝아졌다 어두워졌다 합니다. 배경을 한 번만 학습해 두면
+   그 흔들림이 전부 '차이 신호'로 잡혀 잡음 바닥이 레이저 신호만큼 커집니다.
+   (유령 탄착 → 임계값 상향 → 레이저 미검출, 실제로 이 순서로 나타났습니다.)
+   레이저가 차지하는 넓이는 화면의 0.1%도 안 되므로 화면 전체의 '중앙값 차이'는
+   순수한 흔들림입니다. 매 프레임 그만큼 빼면 흔들림만 사라지고 레이저는 남습니다.
+   중앙값은 정렬 없이 히스토그램으로 구합니다 (저사양 태블릿 부담 최소화). */
+const aeHist=new Int32Array(512);
+function chanMedian(d,bgArr,n,off,step){
+  aeHist.fill(0); let k=0;
+  for(let i=0;i<n;i+=step){ let v=(d[i*4+off]-bgArr[i]+256)|0;
+    if(v<0)v=0; else if(v>511)v=511; aeHist[v]++; k++; }
+  if(!k) return 0;
+  const half=k>>1; let c=0;
+  for(let v=0;v<512;v++){ c+=aeHist[v]; if(c>half) return v-256; }
+  return 0;
+}
+function aeOffset(d,bg,n){
+  if(!AE_ON) return {r:0,g:0,b:0};
+  const step=n>3000?Math.floor(n/3000):1;
+  return {r:chanMedian(d,bg.mR,n,0,step),
+          g:chanMedian(d,bg.mG,n,1,step),
+          b:chanMedian(d,bg.mB,n,2,step)};
+}
+let AE_ON=true;
+/* ★ 배경 서서히 따라가기 ★
+   조명이 천천히 바뀌거나 그림자가 옮겨가도 배경이 낡지 않게 합니다.
+   '조용한 화소'(보정 후 차이가 문턱 미만)만 갱신하므로 켜져 있는 레이저는
+   절대 배경으로 흡수되지 않습니다. */
+function adaptBg(d,bg,n,ae){
+  const K=1/256, oR=ae.r,oG=ae.g,oB=ae.b;
+  for(let i=0,p=0;i<n;i++,p+=4){
+    const dR=d[p]-bg.mR[i]-oR, dG=d[p+1]-bg.mG[i]-oG, dB=d[p+2]-bg.mB[i]-oB;
+    if(dR>=ABS_GATE||dG>=ABS_GATE||dB>=ABS_GATE) continue;
+    bg.mR[i]+=(d[p]-bg.mR[i])*K; bg.mG[i]+=(d[p+1]-bg.mG[i])*K; bg.mB[i]+=(d[p+2]-bg.mB[i])*K;
+  }
+}
 const buf={w:null,l:null,lb:null,st:null,n:0};
 function ensure(n){
   if(buf.n<n){ buf.w=new Float32Array(n);buf.l=new Float32Array(n);
@@ -648,12 +706,14 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
   const n=w*h,d=img.data;
   if(!bg||!bg.mR||bg.mR.length<n) return {blobs:[],stats:{maxRed:0,maxLum:0,flood:false,redAt:null,lumAt:null}};
   ensure(n);
+  const ae=aeOffset(d,bg,n); E.aeLast=ae;
+  const oR=ae.r,oG=ae.g,oB=ae.b;
   const wgt=buf.w,lum=buf.l,lab=buf.lb,st=buf.st;
   let any=false,maxRed=0,maxLum=0,sumRed=0,sumLum=0;
   let mrx=-1,mry=-1,mlx=-1,mly=-1;   // 최대 신호 위치 (임계값 미달이어도 보고)
   for(let i=0,p=0;i<n;i++,p+=4){
     const bR=bg.mR[i],bG=bg.mG[i],bB=bg.mB[i];
-    const dR=d[p]-bR,dG=d[p+1]-bG,dB=d[p+2]-bB;
+    const dR=d[p]-bR-oR,dG=d[p+1]-bG-oG,dB=d[p+2]-bB-oB;
     if(dR<ABS_GATE&&dG<ABS_GATE&&dB<ABS_GATE){ wgt[i]=0;lum[i]=0;lab[i]=0;continue; }
     const yd=0.30*dR+0.59*dG+0.11*dB, yb=0.30*bR+0.59*bG+0.11*bB;
     lum[i]= yd>0 ? yd/(yb>REF_BG?yb:REF_BG) : 0;   // 반사율 보정 (링 선 편향 제거)
@@ -665,38 +725,57 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
     const exc=Math.max(mRed/thRed,mLum/thLum), v=exc>1?exc:0;
     wgt[i]=v; lab[i]=v>0?-1:0; if(v>0)any=true;
   }
-  const stats={maxRed,maxLum,flood:false,redAt:mrx<0?null:{x:mrx,y:mry},lumAt:mlx<0?null:{x:mlx,y:mly}};
-  if(sumLum/n>8||sumRed/n>8){ stats.flood=true; return {blobs:[],stats}; }
-  if(!any) return {blobs:[],stats};
+  const stats={maxRed,maxLum,flood:false,redAt:mrx<0?null:{x:mrx,y:mry},lumAt:mlx<0?null:{x:mlx,y:mly},
+               ae:ae, aeMag:Math.max(Math.abs(ae.r),Math.abs(ae.g),Math.abs(ae.b)),
+               rej:{area:0,peak:0,shape:0,many:0,flood:0,none:0}};
+  if(sumLum/n>8||sumRed/n>8){ stats.flood=true; stats.rej.flood=1; return {blobs:[],stats}; }
+  if(!any){ stats.rej.none=1; return {blobs:[],stats}; }
   const blobs=[],GATE=1.25;
   for(let i0=0;i0<n;i0++){
     if(lab[i0]!==-1) continue;
     let sp=0; st[sp++]=i0; lab[i0]=1;
     let area=0,sw=0,sx=0,sy=0,peak=0,mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9;
+    let bmR=0,bmL=0;
     while(sp>0){
       const i=st[--sp],x=i%w,y=(i-x)/w,v=wgt[i],lv=lum[i]>0?lum[i]:0.001;
       area++; sw+=lv; sx+=lv*x; sy+=lv*y; if(v>peak)peak=v;
+      { const q=i*4, bR2=bg.mR[i],bG2=bg.mG[i],bB2=bg.mB[i];
+        const eR=d[q]-bR2-oR, eG=d[q+1]-bG2-oG, eB=d[q+2]-bB2-oB;
+        const kR=norm(eR,bR2),kG=norm(eG,bG2),kB=norm(eB,bB2);
+        const cR=100*(kR-0.5*(kG+kB)), cL=100*(0.4*kR+0.4*kG+0.2*kB);
+        if(cR>bmR)bmR=cR; if(cL>bmL)bmL=cL; }
       if(x<mnx)mnx=x; if(x>mxx)mxx=x; if(y<mny)mny=y; if(y>mxy)mxy=y;
       if(x>0&&lab[i-1]===-1){lab[i-1]=1;st[sp++]=i-1;}
       if(x<w-1&&lab[i+1]===-1){lab[i+1]=1;st[sp++]=i+1;}
       if(y>0&&lab[i-w]===-1){lab[i-w]=1;st[sp++]=i-w;}
       if(y<h-1&&lab[i+w]===-1){lab[i+w]=1;st[sp++]=i+w;}
     }
-    if(area<minA||area>maxA) continue;
-    if(peak<GATE) continue;
+    if(area<minA||area>maxA){ stats.rej.area++; continue; }
+    if(peak<GATE){ stats.rej.peak++; continue; }
     const bw=mxx-mnx+1,bh=mxy-mny+1;
-    if(Math.max(bw,bh)/Math.max(1,Math.min(bw,bh))>4) continue;
-    if(area/(bw*bh)<0.25) continue;
-    if(sw<=0) continue;
-    blobs.push({x:sx/sw+0.5,y:sy/sw+0.5,area,peak,weight:sw});
+    if(Math.max(bw,bh)/Math.max(1,Math.min(bw,bh))>4){ stats.rej.shape++; continue; }
+    if(area/(bw*bh)<0.25){ stats.rej.shape++; continue; }
+    if(sw<=0){ stats.rej.shape++; continue; }
+    blobs.push({x:sx/sw+0.5,y:sy/sw+0.5,area,peak,weight:sw,mR:bmR,mL:bmL});
   }
   blobs.sort((a,b)=>b.weight-a.weight);
-  return {blobs:blobs.slice(0,8),stats};
+  /* 레이저는 하나입니다. 한 프레임에 덩어리가 여럿 나오면 그건 잡음이지 격발이 아닙니다.
+     예전에는 최대 8개를 그대로 돌려주어, 잡음이 많은 프레임에서 8발이 한꺼번에 만들어졌습니다. */
+  /* ★ 잡음 바닥은 '화소 하나'가 아니라 '덩어리'로 재야 합니다 ★
+     검출은 최소 면적(기본 4화소)을 요구하는데, 잡음 바닥을 화소 하나의 최댓값으로
+     재면 25만 화소 중 가장 튀는 하나가 잡히므로 실제 검출 난이도보다 훨씬 크게
+     나옵니다. 그 값으로 임계값을 정하면 진짜 레이저까지 잘립니다.
+     여기서는 면적 조건을 통과한 덩어리 안의 최댓값만 씁니다. */
+  stats.blobRed=0; stats.blobLum=0;
+  for(const b of blobs){ if(b.mR>stats.blobRed)stats.blobRed=b.mR; if(b.mL>stats.blobLum)stats.blobLum=b.mL; }
+  stats.blobCount=blobs.length;
+  if(blobs.length>MAXB){ stats.noisy=true; stats.rej.many=blobs.length; return {blobs:[],stats}; }
+  return {blobs,stats};
 }
 
 const E={ stream:null,vw:0,vh:0,quad:null,H:null,Hinv:null,roi:null,bg:null,
   fitMode:'manual', fitRot:0, fitScale:1, fitDisc:null,
-  probe:{red:0,lum:0,at:null,frames:0,hits:0,bg:0},
+  probe:{red:0,lum:0,at:null,frames:0,hits:0,bg:0,aeMax:0},
   mmPerPx:0,mode:'idle',running:false,tracks:[],lastEmit:0,lastPos:null,
   bgCount:0,fps:0,frames:0,fpsT:0,floodSince:0,floodWarn:0 };
 const BG_FRAMES=60;
@@ -708,6 +787,8 @@ const stage=document.getElementById('stage');
 const badge=document.getElementById('badge');
 const hintEl=document.getElementById('hint');
 const roiCv=document.createElement('canvas'), roiCtx=roiCv.getContext('2d',{willReadFrequently:true});
+/* 원시 신호를 색으로 보여주기 위한 캔버스 */
+const rawCv=document.createElement('canvas'), rawCtx=rawCv.getContext('2d');
 
 async function startCamera(){
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
@@ -777,7 +858,7 @@ function beginAutoFit(){
   E.mode='autofit'; E.H=null; E.quad=null; E.roi=null; E.bg=null; E.fitDisc=null;
   document.getElementById('tcBg').disabled=true;
   badge.textContent='표적의 검은 원 안을 한 번 누르십시오';
-  showHint('표적 가운데 <b>검은 원 안</b>을 한 번 누르십시오<em>앱이 원을 찾아 채점 좌표계를 자동으로 세웁니다</em>');
+  showHint('표적 가운데 <b>검은 원 안</b>을 누르십시오<em>손가락을 대면 확대해서 보입니다 · 떼면 인식합니다</em>');
   log('자동 맞추기 대기');
   updReady(); updFitUI();
 }
@@ -794,10 +875,11 @@ function beginCalib(){
 function showHint(h){ hintEl.innerHTML=h; hintEl.style.display='block'; }
 function hideHint(){ hintEl.style.display='none'; }
 function drawLoupe(p,ev){
-  const half=LOUPE_SRC/2;
-  let sx=Math.max(0,Math.min(E.vw-LOUPE_SRC,p.x-half)), sy=Math.max(0,Math.min(E.vh-LOUPE_SRC,p.y-half));
+  const SRC = E.mode==='autofit' ? LOUPE_SRC*2.6 : LOUPE_SRC;   // 자동 맞추기는 조금 넓게
+  const half=SRC/2;
+  let sx=Math.max(0,Math.min(E.vw-SRC,p.x-half)), sy=Math.max(0,Math.min(E.vh-SRC,p.y-half));
   lctx.imageSmoothingEnabled=false;
-  lctx.drawImage(video,sx,sy,LOUPE_SRC,LOUPE_SRC,0,0,180,180);
+  lctx.drawImage(video,sx,sy,SRC,SRC,0,0,180,180);
   const {r}=dispScale();
   let lx=(ev.clientX-r.left)-90, ly=(ev.clientY-r.top)-200;
   if(ly<4) ly=(ev.clientY-r.top)+30;
@@ -805,20 +887,31 @@ function drawLoupe(p,ev){
   loupe.style.top=ly+'px'; loupe.style.display='block';
 }
 overlay.addEventListener('pointerdown',ev=>{
+  /* 자동 맞추기도 돋보기로 확대해 보며 고릅니다.
+     작은 미리보기에서 검은 원 안을 정확히 누르기 어렵다는 현장 의견을 반영했습니다. */
   if(E.mode==='autofit'){ ev.preventDefault();
-    const p=evToVideo(ev);
-    if(autoFit(p.x,p.y)){ E.mode='idle'; hideHint();
-      badge.textContent='표적 인식 완료\n링이 인쇄물과 맞는지 확인하십시오';
-      document.getElementById('tcBg').disabled=false; updReady(); updFitUI(); }
-    return; }
+    overlay.setPointerCapture(ev.pointerId); dragging=true;
+    anchorPt=evToVideo(ev); candPt={x:anchorPt.x,y:anchorPt.y};
+    drawLoupe(candPt,ev); return; }
   if(E.mode!=='calib')return; ev.preventDefault();
   overlay.setPointerCapture(ev.pointerId); dragging=true;
   anchorPt=evToVideo(ev); candPt={x:anchorPt.x,y:anchorPt.y}; drawLoupe(candPt,ev); });
-overlay.addEventListener('pointermove',ev=>{ if(E.mode!=='calib'||!dragging)return; ev.preventDefault();
+overlay.addEventListener('pointermove',ev=>{
+  if(!dragging||(E.mode!=='calib'&&E.mode!=='autofit'))return; ev.preventDefault();
   const c=evToVideo(ev);
-  candPt={x:anchorPt.x+(c.x-anchorPt.x)*FINE_GAIN, y:anchorPt.y+(c.y-anchorPt.y)*FINE_GAIN};
+  // 자동 맞추기는 대충 눌러도 되므로 손가락을 그대로 따라가고,
+  // 네 모서리 찍기는 정밀해야 하므로 이동량을 1/4로 줄입니다.
+  const g = E.mode==='autofit' ? 1 : FINE_GAIN;
+  candPt={x:anchorPt.x+(c.x-anchorPt.x)*g, y:anchorPt.y+(c.y-anchorPt.y)*g};
   drawLoupe(candPt,ev); });
-overlay.addEventListener('pointerup',ev=>{ if(E.mode!=='calib'||!dragging)return; ev.preventDefault();
+overlay.addEventListener('pointerup',ev=>{
+  if(E.mode==='autofit'&&dragging){ ev.preventDefault();
+    dragging=false; loupe.style.display='none';
+    if(autoFit(candPt.x,candPt.y)){ E.mode='idle'; hideHint();
+      badge.textContent='표적 인식 완료\n링이 인쇄물과 맞는지 확인하십시오';
+      document.getElementById('tcBg').disabled=false; updReady(); updFitUI(); }
+    return; }
+  if(E.mode!=='calib'||!dragging)return; ev.preventDefault();
   dragging=false; loupe.style.display='none';
   calibPts.push({x:Math.max(0,Math.min(E.vw,candPt.x)),y:Math.max(0,Math.min(E.vh,candPt.y))});
   calibIdx++;
@@ -865,8 +958,30 @@ function grabROI(){
   roiCtx.drawImage(video,r.x,r.y,r.w,r.h,0,0,r.w,r.h);
   return roiCtx.getImageData(0,0,r.w,r.h);
 }
+/* ★ 노출·색온도 고정 시도 ★
+   지원하는 기기(대부분의 안드로이드)는 여기서 고정됩니다. 사파리/아이패드는
+   대체로 지원하지 않으므로 위의 소프트웨어 보정이 실제로 일하는 몫입니다. */
+async function lockCamera(){
+  E.locked=false;
+  try{
+    const tr=E.stream&&E.stream.getVideoTracks()[0];
+    if(!tr||!tr.getCapabilities) { log('이 기기는 노출 고정을 지원하지 않습니다 — 소프트웨어 보정으로 대신합니다.'); return; }
+    const cap=tr.getCapabilities()||{}, set=(tr.getSettings&&tr.getSettings())||{}, adv=[];
+    const has=(k,v)=>Array.isArray(cap[k])&&cap[k].indexOf(v)>=0;
+    if(has('exposureMode','manual')){ const o={exposureMode:'manual'};
+      if(set.exposureTime) o.exposureTime=set.exposureTime;
+      if(set.iso) o.iso=set.iso; adv.push(o); }
+    if(has('whiteBalanceMode','manual')){ const o={whiteBalanceMode:'manual'};
+      if(set.colorTemperature) o.colorTemperature=set.colorTemperature; adv.push(o); }
+    if(has('focusMode','manual')) adv.push({focusMode:'manual'});
+    if(!adv.length){ log('이 기기는 노출 고정을 지원하지 않습니다 — 소프트웨어 보정으로 대신합니다.'); return; }
+    await tr.applyConstraints({advanced:adv});
+    E.locked=true; log('카메라 노출·색온도·초점을 고정했습니다.');
+  }catch(e){ log('노출 고정에 실패했습니다 — 소프트웨어 보정으로 대신합니다.'); }
+}
 function beginBg(){
   if(!E.roi){ alert('먼저 표적을 맞추십시오.'); return; }
+  lockCamera();
   const n=E.roi.w*E.roi.h;
   E.bg={n,sR:new Float32Array(n),sG:new Float32Array(n),sB:new Float32Array(n),
         mR:null,mG:null,mB:null,ready:false,cnt:0};
@@ -888,27 +1003,73 @@ function tick(){
       bg.sR=bg.sG=bg.sB=null; bg.ready=true; E.mode='idle';
       badge.textContent='준비 완료'; log('배경 학습 완료'); updReady(); refreshFireState();
     }
+  } else if(E.mode==='raw'&&E.bg&&E.bg.ready&&E.bg.mR){
+    drawRaw();
+  } else if(E.mode==='verify'&&E.bg&&E.bg.ready&&E.bg.mR){
+    const img=grabROI();
+    const R=detect(img,E.bg,E.roi.w,E.roi.h,CFG.red,CFG.lum,CFG.minA,CFG.maxA);
+    E.lastHits=R.blobs;
+    const before=VF.ghosts;
+    trackVerify(R.blobs,now);
+    if(VF.ghosts>before){
+      // 유령이 나왔다 → 임계값을 올리고 다시
+      /* 임계값을 무한정 올리면 진짜 레이저까지 잘립니다.
+         측정한 신호의 70%를 넘지 않도록 상한을 둡니다. */
+      const capR=Math.max(8, Math.round((E.probe.red||999)*0.7));
+      const capL=Math.max(12, Math.round((E.probe.lum||999)*0.7));
+      if(VF.round>=5 || CFG.red>=capR || CFG.lum>=capL){ endVerify(false); }
+      else { VF.round++;
+        CFG.red=Math.min(capR,Math.round(CFG.red*1.2));
+        CFG.lum=Math.min(capL,Math.round(CFG.lum*1.2));
+        saveCfg(); VF.ghosts=0; VF.t0=now; E.tracks=[]; E.lastEmit=0;
+        log(`유령 검출 — 임계값을 올립니다 (적색 ${CFG.red} · 밝기 ${CFG.lum})`); }
+    } else if(now-VF.t0>3000){ endVerify(true); }
+    if((E.frames&3)===0) updVerify();
   } else if(E.mode==='probe'&&E.bg&&E.bg.ready&&E.bg.mR){
     const img=grabROI();
     // 임계값을 아주 낮춰 '무엇이든 보이는가'를 먼저 확인한다
-    const R=detect(img,E.bg,E.roi.w,E.roi.h,3,5,1,999999);
+    /* 잡음과 신호를 같은 잣대로 재야 합니다 — 면적 조건을 실제 검출과 똑같이 둡니다 */
+    const R=detect(img,E.bg,E.roi.w,E.roi.h,3,5,CFG.minA,CFG.maxA);
     const pr=E.probe; pr.frames++;
-    if(R.stats.maxRed>pr.red){ pr.red=R.stats.maxRed; }
-    if(R.stats.maxLum>pr.lum){ pr.lum=R.stats.maxLum; pr.at=R.stats.lumAt; }
-    if(R.stats.redAt&&R.stats.maxRed>=R.stats.maxLum) pr.at=R.stats.redAt;
+    if(R.stats.aeMag!=null) pr.aeMax=Math.max(pr.aeMax||0,R.stats.aeMag);
+    if(R.stats.flood) pr.floodF=(pr.floodF||0)+1;
+    if(pr.phase==='noise'){
+      pr.noiseFrames++;
+      /* 최댓값이 아니라 중앙값을 씁니다.
+         측정 중에 실수로 한두 발 쏘면 최댓값이 그 값으로 튀어,
+         잡음 바닥이 신호만큼 높아져 "구분 불가"로 잘못 판정됩니다. */
+      pr.nr.push(R.stats.blobRed||0); pr.nl.push(R.stats.blobLum||0);
+      pr.pxr=Math.max(pr.pxr||0,R.stats.maxRed); pr.pxl=Math.max(pr.pxl||0,R.stats.maxLum);
+      if(now-pr.t0>3000){
+        const med=a=>{ const b=a.slice().sort((x,y)=>x-y); return b.length?b[Math.floor(b.length/2)]:0; };
+        pr.noiseRed=med(pr.nr); pr.noiseLum=med(pr.nl);
+        pr.noiseRedMax=Math.max(0,...pr.nr); pr.noiseLumMax=Math.max(0,...pr.nl);
+        pr.phase='signal';
+        badge.textContent='② 이제 레이저를 쏘십시오';
+        log(`잡음 바닥: 적색 ${pr.noiseRed.toFixed(0)} · 밝기 ${pr.noiseLum.toFixed(0)}`); }
+    } else {
+      const sR=R.stats.blobRed||0, sL=R.stats.blobLum||0;
+      if(sR>pr.red){ pr.red=sR; }
+      if(sL>pr.lum){ pr.lum=sL; pr.at=R.stats.lumAt; }
+      pr.pxMax=Math.max(pr.pxMax||0,R.stats.maxRed,R.stats.maxLum);
+      if(R.stats.redAt&&R.stats.maxRed>=R.stats.maxLum) pr.at=R.stats.redAt;
+      if(R.blobs.length) pr.hits++;
+    }
     pr.cur={red:R.stats.maxRed,lum:R.stats.maxLum,flood:R.stats.flood};
-    if(R.blobs.length) pr.hits++;
     E.lastHits=R.blobs;
     if((pr.frames&3)===0) updProbe();
   } else if(E.mode==='run'&&E.bg&&E.bg.ready&&E.bg.mR){
     const img=grabROI();
     const R=detect(img,E.bg,E.roi.w,E.roi.h,CFG.red,CFG.lum,CFG.minA,CFG.maxA);
+    if(TEST.on){ diagAdd(R); if((E.frames&7)===0) updTestInfo(); }
     if(R.stats.flood){
       if(!E.floodSince) E.floodSince=now;
       else if(now-E.floodSince>1500&&now-E.floodWarn>8000){ E.floodWarn=now;
         badge.textContent='⚠ 화면이 배경과 어긋납니다\n카메라가 움직였는지 확인하십시오';
         log('⚠ 배경 불일치 지속 — 태블릿이 밀렸다면 표적 맞추기부터 다시 하십시오.'); }
     } else E.floodSince=0;
+    /* 8프레임에 한 번만 — 조용한 화소만 조금씩 따라갑니다 (레이저는 흡수되지 않습니다) */
+    if(!R.stats.flood && (E.frames&7)===0 && R.stats.ae) adaptBg(img.data,E.bg,E.roi.w*E.roi.h,R.stats.ae);
     track(R.blobs,now);
     E.lastHits=R.blobs;
   }
@@ -931,11 +1092,31 @@ function track(hits,now){
     if(t.seen&&now-t.start>LIFE){ E.tracks.splice(i,1); continue; }
     if(t.seen||now-t.last<GAP) continue;
     E.tracks.splice(i,1);
-    if(t.frames<CFG.minF) continue;
-    if(t.last-t.start>LIFE) continue;
-    if(now-E.lastEmit<CFG.cool&&E.lastPos&&Math.hypot(E.lastPos.x-t.x,E.lastPos.y-t.y)<MR*2) continue;
+    if(t.frames<CFG.minF){ E.rejF=(E.rejF||0)+1; E.rejFmax=Math.max(E.rejFmax||0,t.frames); continue; }
+    if(t.last-t.start>LIFE){ E.rejL=(E.rejL||0)+1; continue; }
+    /* 전역 최소 간격 — 사람이 0.4초 안에 두 발을 쏠 수는 없습니다.
+       예전에는 '직전 발과 가까운 위치'일 때만 막아서, 잡음이 매 프레임 다른 곳에
+       생기면 전혀 걸러지지 않았습니다. */
+    if(now-E.lastEmit<CFG.cool){ E.rejC=(E.rejC||0)+1; continue; }
     E.lastEmit=now; E.lastPos={x:t.x,y:t.y};
     onShot(t);
+  }
+}
+/* 검증용 추적 — 실제 기록은 만들지 않고 '유령이 몇 건 나왔는지'만 센다 */
+function trackVerify(hits,now){
+  const MR=14,GAP=90;
+  for(const t of E.tracks) t.seen=false;
+  for(const b of hits){
+    let best=null,bd=1e9;
+    for(const t of E.tracks){ const d=Math.hypot(t.x-b.x,t.y-b.y); if(d<bd){bd=d;best=t;} }
+    if(best&&bd<MR){ best.x=b.x;best.y=b.y;best.frames++;best.last=now;best.seen=true; }
+    else E.tracks.push({x:b.x,y:b.y,sx:0,sy:0,sw:1,frames:1,start:now,last:now,seen:true,peak:b.peak,area:b.area});
+  }
+  for(let i=E.tracks.length-1;i>=0;i--){
+    const t=E.tracks[i];
+    if(t.seen||now-t.last<GAP) continue;
+    E.tracks.splice(i,1);
+    if(t.frames>=CFG.minF && now-E.lastEmit>=CFG.cool){ E.lastEmit=now; VF.ghosts++; }
   }
 }
 function startLoop(){
@@ -945,6 +1126,38 @@ function startLoop(){
     rv?video.requestVideoFrameCallback(step):requestAnimationFrame(step); };
   rv?video.requestVideoFrameCallback(step):requestAnimationFrame(step);
 }
+/* ★ 카메라가 보는 것 ★
+   임계값·면적·프레임 수 같은 판정을 전부 거치기 전의 '차이 신호'를 그대로 색으로 보여줍니다.
+   여기서 레이저가 보이면 신호는 도달하는 것이고 설정 문제입니다.
+   여기서도 안 보이면 레이저가 카메라에 닿지 않는 것이므로 장비·조명을 고쳐야 합니다. */
+function drawRaw(){
+  if(!E.roi||!E.bg||!E.bg.ready||!E.bg.mR) return;
+  const img=grabROI(), d=img.data, w=E.roi.w, h=E.roi.h, n=w*h, bg=E.bg;
+  if(rawCv.width!==w||rawCv.height!==h){ rawCv.width=w; rawCv.height=h; }
+  const out=rawCtx.createImageData(w,h), o=out.data;
+  const ae=aeOffset(d,bg,n); E.aeLast=ae;
+  let mx=0, mxi=-1;
+  for(let i=0,p2=0;i<n;i++,p2+=4){
+    const dR=d[p2]-bg.mR[i]-ae.r, dG=d[p2+1]-bg.mG[i]-ae.g, dB=d[p2+2]-bg.mB[i]-ae.b;
+    const nR=norm(dR,bg.mR[i]), nG=norm(dG,bg.mG[i]), nB=norm(dB,bg.mB[i]);
+    const mRed=100*(nR-0.5*(nG+nB)), mLum=100*(0.4*nR+0.4*nG+0.2*nB);
+    const v=Math.max(mRed,mLum);
+    if(v>mx){ mx=v; mxi=i; }
+    // 0=검정, 낮음=파랑, 중간=노랑, 높음=흰빨강
+    const t=Math.max(0,Math.min(1,v/60));
+    o[p2]  = t<0.5 ? Math.round(t*2*255) : 255;
+    o[p2+1]= t<0.5 ? Math.round(t*2*180) : Math.round(255-(t-0.5)*2*90);
+    o[p2+2]= t<0.25 ? Math.round((0.25-t)*4*200) : Math.round((t>0.8?(t-0.8)*5*220:0));
+    o[p2+3]= 255;
+  }
+  rawCtx.putImageData(out,0,0);
+  E.rawMax=mx; E.rawAt = mxi<0?null:{x:mxi%w,y:(mxi-mxi%w)/w};
+  const el=document.getElementById('tcRawInfo');
+  if(el) el.innerHTML=`현재 최대 신호 <b>${mx.toFixed(0)}</b> · 임계값 적색 ${CFG.red} / 밝기 ${CFG.lum}`
+    +` · 노출보정 ${ae.r>=0?'+':''}${ae.r}/${ae.g>=0?'+':''}${ae.g}/${ae.b>=0?'+':''}${ae.b}<br>`
+    +`<span class="muted">검정=변화 없음 · 파랑=약함 · 노랑=중간 · <b style="color:#E2452F">빨강=강함</b>. `
+    +`쏠 때 빨간 점이 보이면 신호는 도달하는 것입니다.</span>`;
+}
 function renderOverlay(){
   if(!E.vw) return;
   // 미리보기가 화면에 없으면 그릴 필요가 없다 (발열·배터리 절약)
@@ -953,6 +1166,17 @@ function renderOverlay(){
   const w=overlay.width/dpr,h=overlay.height/dpr;
   octx.clearRect(0,0,w,h);
   const P=p=>({x:p.x*s,y:p.y*s});
+  if(E.rawOn&&E.roi&&rawCv.width){
+    octx.imageSmoothingEnabled=false;
+    octx.globalAlpha=0.92;
+    octx.drawImage(rawCv, E.roi.x*s, E.roi.y*s, E.roi.w*s, E.roi.h*s);
+    octx.globalAlpha=1;
+    if(E.rawAt){
+      const q={x:(E.roi.x+E.rawAt.x)*s, y:(E.roi.y+E.rawAt.y)*s};
+      octx.strokeStyle='#fff'; octx.lineWidth=2;
+      octx.beginPath(); octx.arc(q.x,q.y,12,0,7); octx.stroke();
+    }
+  }
   if(E.mode==='calib'){
     octx.fillStyle='#E2452F';
     calibPts.forEach((p,i)=>{ const q=P(p); octx.beginPath();octx.arc(q.x,q.y,5,0,7);octx.fill(); });
@@ -1195,13 +1419,46 @@ function reFit(){
    학생 데이터를 만들지 않고 검출이 되는지만 확인합니다.
    시범 운영 전에 이걸로 반드시 몇 발 쏴 보십시오. */
 const TEST={on:false,shots:[]};
+/* ★ 검출 진단 ★
+   "안 잡힌다"는 것만으로는 아홉 단계 중 어디서 걸러졌는지 알 수 없습니다.
+   단계별 탈락 횟수를 세어 보여주면 원인이 한 번에 특정됩니다. */
+const DIAG={frames:0,cand:0,area:0,peak:0,shape:0,many:0,flood:0,none:0,
+            rejF:0,rejFmax:0,rejC:0,maxMetric:0};
+function diagReset(){ Object.keys(DIAG).forEach(k=>DIAG[k]=0);
+  E.rejF=0;E.rejFmax=0;E.rejC=0;E.rejL=0; }
+function diagAdd(R){
+  DIAG.frames++;
+  DIAG.cand+=R.blobs.length;
+  const r=R.stats.rej||{};
+  DIAG.area+=r.area||0; DIAG.peak+=r.peak||0; DIAG.shape+=r.shape||0;
+  DIAG.many+=r.many?1:0; DIAG.flood+=r.flood||0; DIAG.none+=r.none||0;
+  DIAG.maxMetric=Math.max(DIAG.maxMetric,R.stats.maxRed,R.stats.maxLum);
+  DIAG.rejF=E.rejF||0; DIAG.rejFmax=E.rejFmax||0; DIAG.rejC=E.rejC||0;
+}
+function diagText(){
+  const d=DIAG;
+  if(!d.frames) return '';
+  const rows=[];
+  if(d.none===d.frames) rows.push(['임계값을 넘은 화소 없음', d.none, '임계값이 신호보다 높습니다']);
+  if(d.flood) rows.push(['화면 전체 변동으로 폐기', d.flood, '카메라 흔들림·조명 변화']);
+  if(d.many) rows.push(['덩어리가 너무 많아 폐기', d.many, '잡음 과다']);
+  if(d.area) rows.push(['면적 미달/초과', d.area, `최소 면적(${CFG.minA})을 낮춰 보십시오`]);
+  if(d.peak) rows.push(['신호가 임계값에 겨우 걸침', d.peak, '임계값을 낮춰 보십시오']);
+  if(d.shape) rows.push(['모양이 점 같지 않음', d.shape, '반사·번짐']);
+  if(d.rejF) rows.push(['프레임 수 부족', d.rejF, `${d.rejFmax}프레임만 잡힘 · 확정 프레임(${CFG.minF})을 1로 내리거나 펄스를 늘리십시오`]);
+  if(d.rejC) rows.push(['재격발 대기에 걸림', d.rejC, `${CFG.cool}ms 이내 재검출`]);
+  if(!rows.length) return `<span class="tag ok">모두 통과</span> 후보 ${d.cand}개 · 최대 신호 ${d.maxMetric.toFixed(0)}`;
+  return `<b>단계별 탈락 (${d.frames}프레임, 최대 신호 ${d.maxMetric.toFixed(0)})</b><br>`
+    + rows.map(([a,b,c])=>`· ${a} <b>${b}</b> — ${c}`).join('<br>');
+}
+
 function toggleTest(){
   if(TEST.on){ TEST.on=false; E.mode='idle';
     document.getElementById('tcTest').textContent='테스트 사격';
     document.getElementById('tcTest').className='warn';
     badge.textContent='준비 완료'; updTestInfo(); refreshFireState(); return; }
   if(!E.bg||!E.bg.ready){ alert('먼저 [표적 맞추기]와 [배경 학습]을 하십시오.'); return; }
-  TEST.on=true; TEST.shots=[]; E.tracks=[]; E.mode='run';
+  TEST.on=true; TEST.shots=[]; E.tracks=[]; E.mode='run'; diagReset();
   document.getElementById('tcTest').textContent='테스트 종료';
   document.getElementById('tcTest').className='danger';
   badge.textContent='테스트 사격 중\n기록에 저장되지 않습니다';
@@ -1210,7 +1467,7 @@ function toggleTest(){
 function updTestInfo(){
   const el=document.getElementById('tcTestInfo'); if(!el) return;
   if(!TEST.shots.length){ el.innerHTML= TEST.on
-    ? '<span class="tag mid">대기</span> 레이저를 쏴 보십시오. 검출되면 여기에 좌표가 뜹니다.'
+    ? '<span class="tag mid">대기</span> 레이저를 쏴 보십시오.<br>'+diagText()
     : '검출 확인용입니다. 여기서 쏜 것은 <b>학생 기록에 저장되지 않습니다.</b>'; return; }
   const m=metrics(TEST.shots);
   el.innerHTML=`<span class="tag ok">검출 ${TEST.shots.length}발</span> `+
@@ -1228,14 +1485,37 @@ function scoreOf(r){
   return { i:Math.max(0,Math.min(CFG.rings,CFG.rings+1-Math.ceil(r/rm))),
            d:Math.max(0,Math.min(CFG.rings+0.9,(CFG.rings+1)-r/rm)), miss:false };
 }
+/* ★ 유령 탄착 안전장치 ★
+   잡음이 겹치면 사람이 낼 수 없는 속도로 발이 쌓입니다.
+   그런 일이 벌어지면 조용히 기록하는 것보다 즉시 멈추고 알리는 편이 낫습니다. */
+function burstGuard(now){
+  if(E.guardOff) return false;   // 자동 테스트에서만 끕니다
+  const n=SES.shots.length;
+  if(n<3) return false;
+  const span=now-SES.shots[n-3].ts;
+  if(span>1500) return false;
+  stopFire();
+  SES.shots=[]; E.tracks=[]; updShootUI();
+  badge.textContent='⚠ 잡음으로 판단해 중단했습니다';
+  log('⚠ 1.5초 안에 3발 이상 검출 — 잡음으로 판단해 회차를 중단했습니다.');
+  alert('사람이 쏠 수 없는 속도로 탄착이 잡혔습니다.\n잡음일 가능성이 높아 이번 회차를 지우고 멈췄습니다.\n\n선생님께 알려 주십시오.\n(교사 설정 → 신호 측정 → 임계값 자동 설정)');
+  return true;
+}
 function onShot(t){
   const vx=E.roi.x+t.x, vy=E.roi.y+t.y;
   const mm=applyH(E.Hinv,vx,vy), r=Math.hypot(mm.x,mm.y), sc=scoreOf(r);
   const rec={x:mm.x,y:mm.y,r,score:sc.i,dec:sc.d,miss:sc.miss,
              frames:t.frames,peak:Math.round(t.peak),ts:Date.now()};
-  if(TEST.on){ rec.no=TEST.shots.length+1; TEST.shots.push(rec); updTestInfo(); return; }
+  if(TEST.on){ rec.no=TEST.shots.length+1; TEST.shots.push(rec);
+    const n=TEST.shots.length;
+    if(n>=3 && rec.ts-TEST.shots[n-3].ts<1500){
+      TEST.noisy=(TEST.noisy||0)+1;
+      if(TEST.noisy===1) log('⚠ 테스트 사격에서 비정상적으로 빠른 연속 검출 — 잡음입니다. 신호 측정으로 임계값을 다시 잡으십시오.');
+    }
+    updTestInfo(); return; }
   if(!SES.firing) return;
   rec.no=SES.shots.length+1; SES.shots.push(rec);
+  if(burstGuard(rec.ts)) return;
   updShootUI();
   if(SES.shots.length>=CFG.perRound) endRound();
 }
@@ -1727,7 +2007,8 @@ function refreshTeacher(){
   // 표적/검출
   const cfgMap=[['tcPreset','preset'],['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],
                 ['tcPerRound','perRound'],['tcRed','red'],['tcLum','lum'],
-                ['tcBlack','blackRatio'],['tcMinA','minA']];
+                ['tcBlack','blackRatio'],['tcMinA','minA'],['tcMinF','minF'],
+                ['tcCool','cool'],['tcMaxB','maxBlobs']];
   cfgMap.forEach(([id,k])=>{ const el=document.getElementById(id); el.value=CFG[k]; });
   // 데이터
   document.getElementById('tcNStu').textContent=ROSTER.students.length;
@@ -1747,15 +2028,29 @@ document.getElementById('tcPreset').addEventListener('change',ev=>{
   const p=PRESETS[ev.target.value];
   CFG.preset=ev.target.value;
   if(p){ CFG.mode=p.mode; CFG.dia=p.dia; CFG.rings=p.rings; if(p.calib!=null) CFG.calib=p.calib; }
-  saveCfg(); if(E.quad) buildTransform(); refreshTeacher();
+  saveCfg();
+  if(E.fitMode==='auto'&&E.fitDisc) reFit(); else if(E.quad) buildTransform();
+  refreshTeacher();
   if(p&&p.calib==null) alert('LaserHIT 표적은 네 귀퉁이 25M 마커 사이 거리를 자로 재어\n[캘리브레이션 기준]에 직접 입력하셔야 합니다.');
 });
 [['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],['tcPerRound','perRound'],
- ['tcRed','red'],['tcLum','lum'],['tcBlack','blackRatio'],['tcMinA','minA']].forEach(([id,k])=>{
+ ['tcRed','red'],['tcLum','lum'],['tcBlack','blackRatio'],['tcMinA','minA'],
+ ['tcMinF','minF'],['tcCool','cool'],['tcMaxB','maxBlobs']].forEach(([id,k])=>{
   document.getElementById(id).addEventListener('change',ev=>{
     const v=parseFloat(ev.target.value);
-    if(isFinite(v)&&v>0){ CFG[k]=v; CFG.preset='custom'; saveCfg();
-      if(E.quad&&(k==='calib'||k==='dia'||k==='rings')) buildTransform(); updReady(); }
+    if(!isFinite(v)||v<=0) return;
+    CFG[k]=v;
+    // 표적 규격을 바꾼 경우에만 프리셋을 '직접 입력'으로 돌린다
+    if(['calib','dia','rings','blackRatio'].indexOf(k)>=0) CFG.preset='custom';
+    saveCfg();
+    /* ※ 예전에는 E.quad 가 있을 때만 다시 계산해서,
+          자동 맞추기(= E.quad 가 없음) 상태에서는 링 지름을 바꿔도
+          화면의 링이 그대로였습니다. 링이 안 맞을 때 고칠 방법이 막혀 있었습니다. */
+    if(['calib','dia','rings','blackRatio'].indexOf(k)>=0){
+      if(E.fitMode==='auto'&&E.fitDisc) reFit();
+      else if(E.quad) buildTransform();
+    }
+    updReady();
   });
 });
 document.getElementById('tcLock').addEventListener('click',()=>{
@@ -1807,60 +2102,150 @@ function bgBrightness(){
   return sm/k;
 }
 function updProbe(){
-  const pr=E.probe;
-  const bb=bgBrightness();
+  const pr=E.probe, bb=bgBrightness();
   document.getElementById('pvBg').textContent=bb.toFixed(0);
-  document.getElementById('pvRed').textContent=pr.red.toFixed(0);
-  document.getElementById('pvLum').textContent=pr.lum.toFixed(0);
+  const nmed=Math.max(pr.noiseRed,pr.noiseLum);
+  const nmax=Math.max(pr.noiseRedMax||0,pr.noiseLumMax||0);
+  document.getElementById('pvNoise').innerHTML=nmed.toFixed(0)
+    +(nmax>nmed?`<small> /${nmax.toFixed(0)}</small>`:'');
+  document.getElementById('pvRed').textContent=pr.phase==='noise'?'–':Math.max(pr.red,pr.lum).toFixed(0);
   document.getElementById('pvHit').textContent=pr.hits;
   const adv=document.getElementById('pvAdvice');
-  const strong=Math.max(pr.red,pr.lum);
+  const noise=Math.max(pr.noiseRed,pr.noiseLum), sig=Math.max(pr.red,pr.lum);
   let h='';
-  if(pr.cur&&pr.cur.flood) h+='<span class="tag bad">화면 전체 변동</span> 카메라가 움직였거나 조명이 바뀌었습니다. <b>배경 학습</b>을 다시 하십시오.<br>';
-  if(strong<8){
+  if(pr.phase==='noise'){
+    const left=Math.max(0,3-(performance.now()-pr.t0)/1000);
+    adv.innerHTML=`<span class="tag mid">① 잡음 측정 중</span> <b>${left.toFixed(1)}초</b> — `
+      +`아직 쏘지 마십시오. 아무도 쏘지 않을 때 카메라가 만들어내는 잡음을 잽니다.`;
+    return;
+  }
+  if(pr.cur&&pr.cur.flood)
+    h+='<span class="tag bad">화면 전체 변동</span> 카메라가 움직였거나 조명이 바뀌었습니다. <b>배경 학습</b>을 다시 하십시오.<br>';
+  if(pr.aeMax>=3)
+    h+=`<span class="tag mid">자동노출 흔들림 ±${pr.aeMax.toFixed(0)}</span> 카메라가 스스로 밝기를 조정하고 있습니다. `
+      +`앱이 자동으로 빼내고 있으므로 <b>그대로 진행해도 됩니다.</b><br>`;
+  /* '작은 점'과 '아예 신호 없음'을 가릅니다.
+     쏠 때의 화소 최댓값이 안 쏠 때보다 뚜렷이 크면 신호는 도달한 것이고,
+     비슷하면 그건 그냥 잡음입니다. */
+  const pxN=Math.max(pr.pxr||0,pr.pxl||0), pxS=pr.pxMax||0;
+  if(sig<8 && pxS>=15 && pxS>=pxN*1.8){
+    /* 화소 하나로는 보이는데 덩어리가 되지 않는 경우 — 점이 너무 작습니다 */
+    h+=`<span class="tag bad">점이 너무 작습니다</span> 신호는 도달하지만(화소 최대 <b>${(pr.pxMax||0).toFixed(0)}</b>) `
+      +`<b>${CFG.minA}화소</b>를 못 채웁니다. (안 쏠 때 ${pxN.toFixed(0)})<br>`
+      +'· <b>최소 면적</b>을 2~3으로 낮추십시오<br>'
+      +'· 태블릿을 표적에 더 가까이 두거나 카메라 해상도를 높이십시오<br>'
+      +'· 레이저 초점을 조금 흐리게 하면 점이 커집니다';
+  } else if(sig<8){
     h+='<span class="tag bad">신호 없음</span> 카메라가 레이저를 전혀 못 보고 있습니다.<br>'
       +'① 레이저가 <b>표적 안</b>을 비추는지 ② 방아쇠를 당길 때 실제로 켜지는지 ③ 배경 학습 뒤 카메라가 움직이지 않았는지<br>'
-      +'④ 아두이노 <b>PULSE_MS 를 150~200</b>으로 늘려 보십시오. 펄스가 너무 짧으면 카메라가 놓칩니다.';
-  } else if(strong<25){
-    h+='<span class="tag mid">신호 약함</span> 잡히긴 하나 약합니다.<br>';
-    if(bb>=238) h+='바탕이 <b>'+bb.toFixed(0)+'</b>로 너무 밝아 여유가 없습니다. 조명을 낮추거나 회색 바탕 표적을 쓰십시오.<br>';
-    h+='아래 <b>임계값 자동 설정</b>을 누른 뒤 다시 쏴 보십시오.';
+      +'④ 아두이노 <b>PULSE_MS 를 150~200</b>으로 늘려 보십시오.';
+  } else if(sig < noise*1.8){
+    h+=`<span class="tag bad">잡음과 구분 불가</span> 신호 <b>${sig.toFixed(0)}</b> · 잡음 <b>${noise.toFixed(0)}</b> — `
+      +'둘이 너무 가까워 임계값을 놓을 자리가 없습니다. <b>이 상태로 쓰면 유령 탄착이 생깁니다.</b><br>'
+      +'· 레이저를 더 밝게 하거나 펄스를 늘리십시오<br>'
+      +'· 조명을 낮추십시오 (바탕 '+bb.toFixed(0)+')<br>'
+      +'· 태블릿을 표적에 더 가까이 두십시오';
   } else {
-    h+='<span class="tag ok">신호 충분</span> 최대 '+strong.toFixed(0)+' — 임계값만 맞추면 됩니다.<br>';
+    const ratio=(sig/Math.max(noise,1)).toFixed(1);
+    h+=`<span class="tag ok">구분 가능</span> 신호 <b>${sig.toFixed(0)}</b> · 잡음 <b>${noise.toFixed(0)}</b> (${ratio}배)<br>`;
     if(bb>=238) h+='다만 바탕이 <b>'+bb.toFixed(0)+'</b>로 매우 밝습니다. 조명을 낮추면 더 안정적입니다.<br>';
+    const gr=Math.round(Math.max(Math.sqrt(Math.max(pr.noiseRed,1)*Math.max(pr.red,1)),8));
+    const gl=Math.round(Math.max(Math.sqrt(Math.max(pr.noiseLum,1)*Math.max(pr.lum,1)),12));
+    h+=`<button class="sm" id="pvApply" style="margin-top:7px">임계값 자동 설정 후 검증 (적색 ${gr} · 밝기 ${gl})</button>`;
   }
-  if(strong>=8) h+=`<button class="sm" id="pvApply" style="margin-top:7px">임계값 자동 설정 (적색 ${Math.max(5,Math.round(pr.red*0.45))} · 밝기 ${Math.max(10,Math.round(pr.lum*0.5))})</button>`;
   adv.innerHTML=h;
   const ap=document.getElementById('pvApply');
   if(ap) ap.onclick=()=>{
-    CFG.red=Math.max(5,Math.round(pr.red*0.45));
-    CFG.lum=Math.max(10,Math.round(pr.lum*0.5));
-    if(pr.minArea) CFG.minA=Math.max(1,Math.min(20,Math.floor(pr.minArea*0.5)));
+    /* 잡음과 신호의 기하평균 — 둘 사이 한가운데.
+       이어서 실제로 유령 탄착이 나오는지 3초간 검증하고, 나오면 자동으로 올립니다. */
+    CFG.red=Math.round(Math.max(Math.sqrt(Math.max(pr.noiseRed,1)*Math.max(pr.red,1)),8));
+    CFG.lum=Math.round(Math.max(Math.sqrt(Math.max(pr.noiseLum,1)*Math.max(pr.lum,1)),12));
     saveCfg(); refreshTeacher();
-    log(`임계값 자동 설정: 적색 ${CFG.red} · 밝기 ${CFG.lum}`);
-    alert(`임계값을 적색 ${CFG.red}, 밝기 ${CFG.lum} 로 맞췄습니다.\n[테스트 사격]으로 확인해 보십시오.`);
+    log(`임계값 1차 설정: 적색 ${CFG.red} · 밝기 ${CFG.lum} — 이제 검증합니다`);
+    startVerify();
   };
 }
+/* ★ 임계값 자동 검증 ★
+   임계값을 정한 뒤, 아무도 쏘지 않는 상태에서 3초간 유령 탄착이 생기는지 실제로 확인합니다.
+   생기면 임계값을 20%씩 올려 다시 확인하고, 0건이 될 때까지 반복합니다.
+   시범 운영에서 유령 탄착이 쏟아진 원인은 임계값이 잡음보다 낮았기 때문인데,
+   이 검증을 통과해야만 '사용 가능'으로 표시합니다. */
+const VF={on:false,round:0,ghosts:0,t0:0};
+function startVerify(){
+  VF.on=true; VF.round=1; VF.ghosts=0; VF.t0=performance.now();
+  E.tracks=[]; E.lastEmit=0; E.mode='verify';
+  badge.textContent='임계값 검증 중\n쏘지 말고 기다려 주십시오';
+  updVerify();
+}
+function updVerify(){
+  const adv=document.getElementById('pvAdvice'); if(!adv) return;
+  if(VF.on){
+    const left=Math.max(0,3-(performance.now()-VF.t0)/1000);
+    adv.innerHTML=`<span class="tag mid">검증 ${VF.round}회차</span> <b>${left.toFixed(1)}초</b> — `
+      +`<b>쏘지 마십시오.</b> 이 상태에서 탄착이 잡히면 잡음입니다. `
+      +`(현재 적색 ${CFG.red} · 밝기 ${CFG.lum} · 유령 ${VF.ghosts}건)`;
+  }
+}
+function endVerify(ok){
+  VF.on=false; E.mode='idle'; E.tracks=[];
+  const adv=document.getElementById('pvAdvice');
+  badge.textContent='준비 완료';
+  if(ok){
+    adv.innerHTML=`<span class="tag ok">검증 통과</span> 3초 동안 유령 탄착 <b>0건</b>. `
+      +`임계값 <b>적색 ${CFG.red} · 밝기 ${CFG.lum}</b> 로 확정했습니다.<br>`
+      +`이제 <b>테스트 사격</b>으로 실제 레이저가 잡히는지 확인하십시오.`;
+    log(`임계값 검증 통과: 적색 ${CFG.red} · 밝기 ${CFG.lum}`);
+  } else {
+    adv.innerHTML=`<span class="tag bad">검증 실패</span> 임계값을 ${VF.round}번 올렸는데도 유령 탄착이 사라지지 않습니다.<br>`
+      +`잡음이 너무 큽니다. <b>조명을 낮추거나</b>, <b>태블릿 고정을 단단히</b> 하거나, `
+      +`<b>배경 학습을 다시</b> 해보십시오. 그래도 안 되면 레이저를 더 밝게 해야 합니다.`;
+    log('⚠ 임계값 검증 실패 — 잡음이 과도합니다');
+  }
+}
 function toggleProbe(){
+  const btn=document.getElementById('tcProbe');
   if(E.mode==='probe'){ E.mode='idle';
-    document.getElementById('tcProbe').textContent='신호 측정 시작';
-    document.getElementById('tcProbe').className='warn';
+    btn.textContent='신호 측정 시작'; btn.className='warn';
     badge.textContent='준비 완료'; E.lastHits=null; return; }
   if(!E.bg||!E.bg.ready){ alert('먼저 [배경 학습]을 하십시오.'); return; }
-  E.probe={red:0,lum:0,at:null,frames:0,hits:0,bg:0};
+  E.probe={phase:'noise',red:0,lum:0,noiseRed:0,noiseLum:0,at:null,frames:0,hits:0,
+           t0:performance.now(),noiseFrames:0,nr:[],nl:[]};
   E.mode='probe';
-  document.getElementById('tcProbe').textContent='측정 종료';
-  document.getElementById('tcProbe').className='danger';
+  btn.textContent='측정 종료'; btn.className='danger';
   document.getElementById('tcProbeBox').style.display='';
-  badge.textContent='신호 측정 중\n표적에 레이저를 쏘십시오';
-  log('신호 측정 시작');
+  badge.textContent='① 잡음 측정 중 (3초)\n아직 쏘지 마십시오';
+  log('신호 측정 시작 — 먼저 잡음 바닥을 잽니다(3초)');
   updProbe();
 }
 document.getElementById('tcProbe').addEventListener('click',toggleProbe);
+document.getElementById('tcRaw').addEventListener('click',()=>{
+  const btn=document.getElementById('tcRaw');
+  if(E.mode==='raw'){ E.mode='idle'; E.rawOn=false; btn.textContent='카메라가 보는 것 (원시 신호)';
+    btn.className='ghost'; badge.textContent='준비 완료'; return; }
+  if(!E.bg||!E.bg.ready){ alert('먼저 [배경 학습]을 하십시오.'); return; }
+  E.mode='raw'; E.rawOn=true;
+  btn.textContent='원시 신호 끄기'; btn.className='danger';
+  badge.textContent='원시 신호 보기\n쏠 때 빨간 점이 뜨는지 보십시오';
+  log('원시 신호 보기 시작');
+});
 document.getElementById('tcProbeReset').addEventListener('click',()=>{
-  E.probe={red:0,lum:0,at:null,frames:0,hits:0,bg:0}; updProbe(); });
+  if(E.mode!=='probe'){ toggleProbe(); return; }
+  E.probe={phase:'noise',red:0,lum:0,noiseRed:0,noiseLum:0,at:null,frames:0,hits:0,
+           t0:performance.now(),noiseFrames:0,nr:[],nl:[]};
+  badge.textContent='① 잡음 측정 중 (3초)\n아직 쏘지 마십시오';
+  log('신호 측정 다시 시작'); updProbe(); });
 document.getElementById('tcTest').addEventListener('click',toggleTest);
-document.getElementById('tcTestClear').addEventListener('click',()=>{ TEST.shots=[]; updTestInfo(); });
+document.getElementById('tcTestClear').addEventListener('click',()=>{ TEST.shots=[]; diagReset(); updTestInfo(); });
+document.getElementById('tcSmallDot').addEventListener('click',()=>{
+  CFG.minA=2; saveCfg(); refreshTeacher();
+  log('작은 점 모드: 최소 면적 2');
+  alert('최소 면적을 2화소로 내렸습니다.\n레이저 점이 작게 찍히는 경우에 대응합니다.\n\n잡음에 약해지므로 [신호 측정]으로 검증을 다시 하십시오.');
+});
+document.getElementById('tcShortPulse').addEventListener('click',()=>{
+  CFG.minF=1; CFG.minA=Math.max(2,Math.min(CFG.minA,3)); saveCfg(); refreshTeacher();
+  log('짧은 펄스 모드: 확정 프레임 1, 최소 면적 '+CFG.minA);
+  alert('확정 프레임을 1로 내렸습니다.\n한 프레임에만 잡히는 레이저도 인정합니다.\n\n잡음에 약해지므로 [신호 측정]으로 검증을 다시 하십시오.');
+});
 function updReady(){
   const el=document.getElementById('tcReady'); if(!el) return;
   const ok=!!(E.bg&&E.bg.ready);
@@ -1871,6 +2256,7 @@ function updReady(){
     : `<span class="tag ok">준비 완료</span> 학생이 사격할 수 있습니다. · ${E.mmPerPx.toFixed(2)} mm/px`;
   const tb=document.getElementById('tcTest'); if(tb) tb.disabled=!ok;
   const pb=document.getElementById('tcProbe'); if(pb) pb.disabled=!ok;
+  const rb=document.getElementById('tcRaw'); if(rb) rb.disabled=!ok;
   const ab=document.getElementById('tcAuto'); if(ab) ab.disabled=!E.vw;
   updFitUI();
   refreshFireState();
@@ -1997,6 +2383,8 @@ if(location.protocol!=='https:'&&location.hostname!=='localhost')
    _testSetup/_testShot 은 카메라 없이 사격 흐름(채점·저장·코칭)을 검증하기 위한 것으로,
    실제 검출 경로(onShot 이후)를 그대로 통과시킵니다. */
 window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,ringMm,goTab,
+  _ae:(v)=>{AE_ON=v;}, get _aeOn(){return AE_ON;},
+  _detect:(img,bg,w,h)=>detect(img,bg,w,h,CFG.red,CFG.lum,CFG.minA,CFG.maxA),
   get roster(){return ROSTER;}, get rounds(){return ROUNDS;}, get shots(){return SHOTS;},
   _testSetup(){
     E.vw=1920; E.vh=1080;
@@ -2006,6 +2394,7 @@ window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,ringMm,goTab,
     updReady(); refreshFireState();
     return {mmPerPx:E.mmPerPx, roi:E.roi};
   },
+  _guard(on){ E.guardOff=!on; return !E.guardOff; },
   _testShot(xmm,ymm){
     if(!E.Hinv||!E.roi) return false;
     const p=applyH(E.H,xmm,ymm);
