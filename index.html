@@ -223,8 +223,16 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
   <div id="fsBar">
     <button class="ghost sm" id="fsCancel">취소</button>
     <button class="ghost sm" id="fsTap" style="display:none">직접 지정</button>
+    <button class="ghost sm" id="fsManual">손으로 맞추기</button>
     <button class="ghost sm" id="fsZoomOut">축소 −</button>
     <button class="ghost sm" id="fsZoomIn">확대 +</button>
+    <button class="ghost sm" data-man="m-" style="display:none">작게</button>
+    <button class="ghost sm" data-man="m+" style="display:none">크게</button>
+    <button class="ghost sm" data-man="ma-" style="display:none">납작 −</button>
+    <button class="ghost sm" data-man="ma+" style="display:none">납작 +</button>
+    <button class="ghost sm" data-man="mr-" style="display:none">회전 −</button>
+    <button class="ghost sm" data-man="mr+" style="display:none">회전 +</button>
+    <button class="sm" id="fsManDone" style="display:none">완료</button>
     <button class="sm" id="fsApprove" style="display:none">승인</button>
     <button class="ghost sm" data-fit="s-" data-tune>크기 −</button>
     <button class="ghost sm" data-fit="s+" data-tune>크기 +</button>
@@ -410,6 +418,12 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
         <button class="ghost" id="tcAuto" disabled>표적 자동 맞추기</button>
         <button class="ghost" id="tcBg" disabled>배경 학습</button>
       </div>
+      <div class="row" style="margin-top:7px">
+        <button class="ghost sm" id="tcPhoto" disabled>카메라 사진 저장 (문제 해결용)</button>
+      </div>
+      <p class="note" style="margin-top:4px">표적이 인식되지 않을 때 누르십시오.
+      <b>카메라가 보고 있는 화면을 있는 그대로(무손실) 담은 사진</b>과 설정값 파일이 내려받아집니다.
+      표적 맞추기 전에도 쓸 수 있습니다. 두 파일을 보내 주시면 원인을 정확히 짚을 수 있습니다.</p>
       <p class="note" id="tcReady"></p>
 
       <div id="tcFitBox" style="display:none;border:1px solid var(--line);border-radius:9px;padding:10px;margin-top:9px">
@@ -970,6 +984,7 @@ async function startCamera(){
   if(st.frameRate&&st.frameRate<50) log('⚠ 30fps입니다. 아두이노 펄스를 120ms 이상으로 두십시오.');
   resizeOverlay();
   document.getElementById('tcCalib').disabled=false;
+  document.getElementById('tcPhoto').disabled=false;
   // 저장된 캘리브레이션 복원
   const q=load('sl.quad',null);
   if(q&&q.vw===E.vw&&q.vh===E.vh){
@@ -1075,6 +1090,55 @@ function tuneFS(on){
   if(inf) inf.textContent = on
     ? `크기 ${(E.fitScale*100).toFixed(0)}% · 회전 ${E.fitRot.toFixed(0)}° · ${E.mmPerPx.toFixed(2)} mm/px` : '';
 }
+/* ★★ 손으로 맞추기 ★★
+   자동 인식도, 검은 원 짚기도 실패할 수 있습니다. 표적 인쇄물의 색·크기·조명이
+   제각각이고, 그 어느 것도 교사가 통제할 수 없기 때문입니다.
+   이 모드는 영상을 전혀 분석하지 않습니다. 화면에 그려진 초록 링을 손가락으로
+   끌어 옮기고 단추로 크기·기울기를 맞추기만 합니다. 실패할 수가 없습니다. */
+const MAN={cx:0,cy:0,a:0,asp:1,rot:0};
+function applyManual(){
+  const a=Math.max(3,MAN.a), b=Math.max(3,MAN.a*MAN.asp);
+  const cov={a:a*a/4, b:0, c:b*b/4};
+  E.fitMode='auto'; E.fitScale=1; E.fitRot=0; E.quad=null;
+  E.fitDisc={cx:MAN.cx, cy:MAN.cy, cov, rmin:Math.min(a,b), rmax:Math.max(a,b),
+             area:Math.PI*a*b, contrast:999, A2:0, A4:0, ring:0, manual:true};
+  E.H=affineFromEllipse(cov,MAN.cx,MAN.cy,(CFG.dia*CFG.blackRatio)/2,MAN.rot);
+  finalizeTransform();
+  const inf=document.getElementById('fsInfo');
+  if(inf) inf.textContent=`흑심 반지름 ${a.toFixed(0)}px · 기울기 ${(MAN.asp*100).toFixed(0)}% · 회전 ${MAN.rot}° · ${E.mmPerPx.toFixed(2)} mm/px`;
+}
+function beginManual(){
+  if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
+  SCAN.on=false; E.mode='manual';
+  const d=E.fitDisc;
+  MAN.cx = d?d.cx:E.vw/2; MAN.cy = d?d.cy:E.vh/2;
+  MAN.a  = d?Math.max(6,(d.rmin+d.rmax)/2):Math.max(8,E.vw*0.05);
+  MAN.asp= 1; MAN.rot=0;
+  applyManual();
+  document.getElementById('tcBg').disabled=false;
+  showHint('<b>초록 링을 인쇄된 링에 맞추십시오</b><em>화면을 끌어 옮기고 · 아래 단추로 크기·기울기를 맞춘 뒤 [완료]</em>');
+  if(!document.body.classList.contains('fs')) enterFS();
+  manUI(); updReady();
+}
+function applyMan(k){
+  if(k==='m-') MAN.a*=0.94;
+  else if(k==='m+') MAN.a*=1.06;
+  else if(k==='ma-') MAN.asp=Math.max(0.35,MAN.asp-0.04);
+  else if(k==='ma+') MAN.asp=Math.min(1.8,MAN.asp+0.04);
+  else if(k==='mr-') MAN.rot-=3;
+  else if(k==='mr+') MAN.rot+=3;
+  applyManual();
+}
+function manUI(){
+  const on = E.mode==='manual';
+  document.querySelectorAll('#fsBar [data-man]').forEach(b=>b.style.display=on?'':'none');
+  const dn=document.getElementById('fsManDone'); if(dn) dn.style.display=on?'':'none';
+  if(on){
+    ['fsApprove','fsTap','fsDone','fsManual'].forEach(id=>{
+      const e=document.getElementById(id); if(e) e.style.display='none'; });
+    document.querySelectorAll('#fsBar [data-tune]').forEach(b=>b.style.display='none');
+  }
+}
 /* ★ 자동 탐색 모드 ★
    교사가 아무 것도 누르지 않아도 앱이 계속 표적을 찾습니다.
    찾으면 초록 링을 그려 보여주고, 교사는 맞는지 보고 [승인]만 누릅니다. */
@@ -1112,15 +1176,26 @@ function scanTick(now){
       SCAN.ok=true;
       showHint('<b>이 표적이 맞습니까?</b><em>초록 링이 인쇄된 링과 겹치면 [승인]을 누르십시오</em>');
     } else SCAN.ok=false;
+  } else if(!SCAN.ok && SCAN.tries>=8){
+    /* 여덟 번(약 5초) 찾아도 안 되면 붙잡아 두지 않고 손으로 맞추기로 넘깁니다.
+       교사가 '아무 것도 안 된다'는 상태에 갇히지 않게 하는 것이 가장 중요합니다. */
+    SCAN.err=(r&&r.err)||'후보 없음';
+    log('자동 탐색 실패 — 손으로 맞추기로 전환합니다: '+SCAN.err.replace(/<[^>]+>/g,''));
+    beginManual();
+    showHint('<b>자동 인식이 안 돼 손으로 맞추기로 넘어갑니다</b><em>초록 링을 끌어 표적에 올리고 크기를 맞춘 뒤 [완료]</em>');
+    return;
   } else if(!SCAN.ok && SCAN.tries>=3){
+    SCAN.err=(r&&r.err)||'후보 없음';
     showHint('<b>표적을 찾지 못했습니다</b><em>표적 전체가 화면에 들어오는지 · 조명 반사가 없는지 보십시오 · 안 되면 [직접 지정]</em>');
   }
   scanUI();
 }
 function scanUI(){
   const ap=document.getElementById('fsApprove'), tp=document.getElementById('fsTap');
+  const mn=document.getElementById('fsManual');
   if(ap) ap.style.display = (E.mode==='scan'&&SCAN.ok)?'':'none';
   if(tp) tp.style.display = (E.mode==='scan')?'':'none';
+  if(mn) mn.style.display = (E.mode==='scan'||E.mode==='autofit')?'':'none';
   const inf=document.getElementById('fsInfo');
   if(inf&&E.mode==='scan') inf.textContent = SCAN.ok
     ? `흑심 반지름 ${Math.round((E.fitDisc.rmin+E.fitDisc.rmax)/2)}px · ${E.mmPerPx.toFixed(2)} mm/px`
@@ -1182,6 +1257,9 @@ overlay.addEventListener('pointerdown',ev=>{
      작은 미리보기에서 검은 원 안을 정확히 누르기 어렵다는 현장 의견을 반영했습니다. */
   /* 자동 탐색 중에 화면을 누르면 바로 '직접 지정'으로 넘어갑니다.
      교사가 기다리지 않고 바로 찍고 싶을 때를 위한 것입니다. */
+  if(E.mode==='manual'){ ev.preventDefault();
+    overlay.setPointerCapture(ev.pointerId); dragging=true;
+    anchorPt=evToVideo(ev); candPt={x:MAN.cx,y:MAN.cy}; return; }
   if(E.mode==='scan'){ SCAN.on=false; E.mode='autofit';
     showHint('표적 가운데 <b>검은 원 안</b>을 누르십시오<em>손가락을 대면 확대됩니다 · 천천히 옮긴 뒤 떼면 인식합니다</em>');
     scanUI(); }
@@ -1193,6 +1271,10 @@ overlay.addEventListener('pointerdown',ev=>{
   overlay.setPointerCapture(ev.pointerId); dragging=true;
   anchorPt=evToVideo(ev); candPt={x:anchorPt.x,y:anchorPt.y}; drawLoupe(candPt,ev); });
 overlay.addEventListener('pointermove',ev=>{
+  if(dragging&&E.mode==='manual'){ ev.preventDefault();
+    const c=evToVideo(ev);
+    MAN.cx=candPt.x+(c.x-anchorPt.x); MAN.cy=candPt.y+(c.y-anchorPt.y);
+    applyManual(); return; }
   if(!dragging||(E.mode!=='calib'&&E.mode!=='autofit'))return; ev.preventDefault();
   const c=evToVideo(ev);
   // 자동 맞추기는 대충 눌러도 되므로 손가락을 그대로 따라가고,
@@ -1200,7 +1282,28 @@ overlay.addEventListener('pointermove',ev=>{
   const g = E.mode==='autofit' ? 1 : FINE_GAIN;
   candPt={x:anchorPt.x+(c.x-anchorPt.x)*g, y:anchorPt.y+(c.y-anchorPt.y)*g};
   drawLoupe(candPt,ev); });
+function finishPick(){
+  if(E.mode==='autofit'&&dragging){
+    dragging=false; loupe.style.display='none';
+    if(autoFit(candPt.x,candPt.y)){ E.mode='idle';
+      badge.textContent='표적 인식 완료';
+      document.getElementById('tcBg').disabled=false; updReady(); updFitUI();
+      if(document.body.classList.contains('fs')){
+        showHint('<b>인쇄된 링과 초록 링이 겹치는지</b> 보십시오<em>어긋나면 아래 단추로 맞춘 뒤 [완료]</em>');
+        tuneFS(true);
+      } else hideHint();
+    }
+    return;
+  }
+  if(E.mode!=='calib'||!dragging) return;
+  dragging=false; loupe.style.display='none';
+  calibPts.push({x:Math.max(0,Math.min(E.vw,candPt.x)),y:Math.max(0,Math.min(E.vh,candPt.y))});
+  calibIdx++;
+  if(calibIdx<4) showHint(`${CFG.mode==='ring'?'최외곽 링 위의':'표적 정사각형의'} <b>${cnames()[calibIdx]}</b> 지점을 누르십시오 <span style="opacity:.7">(${calibIdx+1}/4)</span>`);
+  else finishCalib();
+}
 overlay.addEventListener('pointerup',ev=>{
+  if(E.mode==='manual'&&dragging){ ev.preventDefault(); dragging=false; return; }
   if(E.mode==='autofit'&&dragging){ ev.preventDefault();
     dragging=false; loupe.style.display='none';
     if(autoFit(candPt.x,candPt.y)){ E.mode='idle';
@@ -1219,6 +1322,41 @@ overlay.addEventListener('pointerup',ev=>{
   if(calibIdx<4) showHint(`${CFG.mode==='ring'?'최외곽 링 위의':'표적 정사각형의'} <b>${cnames()[calibIdx]}</b> 지점을 누르십시오 <span style="opacity:.7">(${calibIdx+1}/4)</span>`);
   else finishCalib(); });
 overlay.addEventListener('pointercancel',()=>{ dragging=false; loupe.style.display='none'; });
+/* ★ 터치 대체 경로 ★
+   포인터 이벤트가 오지 않는 기기(구형 웹뷰·일부 사파리 설정)에서는 화면을 눌러도
+   아무 일도 일어나지 않습니다. 그런 경우에도 동작하도록 터치 이벤트로도 같은 처리를
+   겁니다. 포인터 이벤트가 한 번이라도 오면 이쪽은 스스로 물러납니다(이중 처리 방지). */
+let sawPointer=false;
+overlay.addEventListener('pointerdown',()=>{ sawPointer=true; },true);
+function touchAsPointer(t,type){
+  return {clientX:t.clientX, clientY:t.clientY, pointerId:1,
+          preventDefault(){}, type};
+}
+overlay.addEventListener('touchstart',ev=>{
+  if(sawPointer||!ev.touches.length) return;
+  ev.preventDefault(); TOUCH.on=true;
+  const e=touchAsPointer(ev.touches[0],'pointerdown');
+  if(E.mode==='manual'){ dragging=true; anchorPt=evToVideo(e); candPt={x:MAN.cx,y:MAN.cy}; return; }
+  if(E.mode==='scan'){ SCAN.on=false; E.mode='autofit'; scanUI(); }
+  if(E.mode==='autofit'||E.mode==='calib'){ dragging=true;
+    anchorPt=evToVideo(e); candPt={x:anchorPt.x,y:anchorPt.y}; drawLoupe(candPt,e); }
+},{passive:false});
+overlay.addEventListener('touchmove',ev=>{
+  if(sawPointer||!TOUCH.on||!dragging||!ev.touches.length) return;
+  ev.preventDefault();
+  const e=touchAsPointer(ev.touches[0],'pointermove'), c=evToVideo(e);
+  if(E.mode==='manual'){ MAN.cx=candPt.x+(c.x-anchorPt.x); MAN.cy=candPt.y+(c.y-anchorPt.y); applyManual(); return; }
+  const g = E.mode==='autofit' ? 1 : FINE_GAIN;
+  candPt={x:anchorPt.x+(c.x-anchorPt.x)*g, y:anchorPt.y+(c.y-anchorPt.y)*g};
+  drawLoupe(candPt,e);
+},{passive:false});
+overlay.addEventListener('touchend',ev=>{
+  if(sawPointer||!TOUCH.on||!dragging) return;
+  ev.preventDefault(); TOUCH.on=false;
+  if(E.mode==='manual'){ dragging=false; return; }
+  finishPick();
+},{passive:false});
+const TOUCH={on:false};
 
 function finishCalib(){
   E.quad=calibPts.slice(); hideHint();
@@ -2532,6 +2670,19 @@ document.getElementById('fsCancel').addEventListener('click',()=>{
 });
 document.getElementById('fsDone').addEventListener('click',()=>{ hideHint(); exitFS(); });
 document.getElementById('fsApprove').addEventListener('click',approveScan);
+document.getElementById('fsManual').addEventListener('click',beginManual);
+document.getElementById('fsManDone').addEventListener('click',()=>{
+  E.mode='idle';
+  save('sl.quad',{vw:E.vw,vh:E.vh,fit:'auto',H:E.H,disc:E.fitDisc});
+  document.getElementById('tcBg').disabled=false;
+  badge.textContent='표적 지정 완료';
+  log('손으로 맞추기 완료 · '+E.mmPerPx.toFixed(3)+' mm/px');
+  hideHint(); manUI(); exitFS(); updReady(); updFitUI();
+});
+document.getElementById('fsBar').addEventListener('click',ev=>{
+  const b=ev.target.closest('button[data-man]'); if(!b) return;
+  applyMan(b.dataset.man);
+});
 document.getElementById('fsZoomIn').addEventListener('click',()=>camZoom(+1));
 document.getElementById('fsZoomOut').addEventListener('click',()=>camZoom(-1));
 document.getElementById('fsTap').addEventListener('click',beginTapFit);
@@ -2726,6 +2877,7 @@ document.getElementById('tcProbeReset').addEventListener('click',()=>{
            t0:performance.now(),noiseFrames:0,nr:[],nl:[]};
   badge.textContent='① 잡음 측정 중 (3초)\n아직 쏘지 마십시오';
   log('신호 측정 다시 시작'); updProbe(); });
+document.getElementById('tcPhoto').addEventListener('click',savePhoto);
 document.getElementById('tcRec').addEventListener('click',startRec);
 document.getElementById('tcTest').addEventListener('click',toggleTest);
 document.getElementById('tcTestClear').addEventListener('click',()=>{ TEST.shots=[]; diagReset(); updTestInfo(); });
@@ -2739,6 +2891,39 @@ document.getElementById('tcShortPulse').addEventListener('click',()=>{
   log('짧은 펄스 모드: 확정 프레임 1, 최소 면적 '+CFG.minA);
   alert('확정 프레임을 1로 내렸습니다.\n한 프레임에만 잡히는 레이저도 인정합니다.\n\n잡음에 약해지므로 [신호 측정]으로 검증을 다시 하십시오.');
 });
+/* ★ 카메라 사진 저장 ★
+   표적 인식이 안 될 때 가장 필요한 것은 '카메라가 실제로 무엇을 보고 있는가' 입니다.
+   배경 학습·표적 맞추기가 끝나야만 진단 자료를 만들 수 있게 해 두었더니,
+   정작 표적 맞추기가 안 되는 상황에서는 아무 자료도 남길 수 없었습니다.
+   이 단추는 카메라만 켜져 있으면 언제든 동작합니다. */
+function savePhoto(){
+  if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
+  const cv=document.createElement('canvas'); cv.width=E.vw; cv.height=E.vh;
+  cv.getContext('2d').drawImage(video,0,0,E.vw,E.vh);
+  const stamp=new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);
+  cv.toBlob(bl=>{
+    const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
+    a.download=`shotline_photo_${stamp}.png`; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  },'image/png');
+  let cap={},set={};
+  try{ const tr=E.stream&&E.stream.getVideoTracks()[0];
+    if(tr){ if(tr.getCapabilities) cap=tr.getCapabilities()||{};
+            if(tr.getSettings) set=tr.getSettings()||{}; } }catch(e){}
+  const meta={ver:'1.9',when:new Date().toISOString(),vw:E.vw,vh:E.vh,fps:Math.round(E.fps),
+    cfg:JSON.parse(JSON.stringify(CFG)),
+    fit:E.fitDisc?{cx:E.fitDisc.cx,cy:E.fitDisc.cy,rmin:E.fitDisc.rmin,rmax:E.fitDisc.rmax,
+      contrast:E.fitDisc.contrast,A2:E.fitDisc.A2,A4:E.fitDisc.A4,ring:E.fitDisc.ring,manual:!!E.fitDisc.manual}:null,
+    scanTries:SCAN.tries, scanOk:SCAN.ok, lastScanErr:SCAN.err||null,
+    zoom:E.zoom||1, camZoom:E.camZoom||null,
+    capabilities:cap, settings:set, ua:navigator.userAgent};
+  const bl2=new Blob([JSON.stringify(meta,null,1)],{type:'application/json'});
+  const a2=document.createElement('a'); a2.href=URL.createObjectURL(bl2);
+  a2.download=`shotline_photo_${stamp}.json`; setTimeout(()=>a2.click(),700);
+  log(`카메라 사진 저장: ${E.vw}×${E.vh}`);
+  const el=document.getElementById('tcReady');
+  if(el) el.innerHTML='<span class="tag ok">사진 저장됨</span> 내려받은 <b>PNG·JSON 두 파일</b>을 보내 주십시오.';
+}
 /* ★ 진단 자료 저장 ★
    임계값·판정을 전혀 거치지 않은 '카메라가 실제로 받은 화소'를 그대로 담습니다.
    여러 프레임을 세로로 이어 붙여 PNG 한 장으로 만듭니다(무손실이라 약한 점도 보존됩니다).
