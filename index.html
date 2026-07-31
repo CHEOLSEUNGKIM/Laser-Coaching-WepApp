@@ -99,9 +99,40 @@ td.n{font-family:var(--mono);text-align:right}
 .pane.on{display:block}
 
 /* ---------- 카메라 ---------- */
-#stage{position:relative;background:#000;border-radius:9px;overflow:hidden}
-#video{width:100%;display:block;background:#000}
+/* ★ 길게 누르기 메뉴 차단 ★
+   아이패드·안드로이드에서 영상 위를 꾹 누르면 화면이 파랗게 변하며
+   '복사 / 저장' 메뉴가 뜹니다. 돋보기로 표적 중앙을 맞추는 동작이 바로 그
+   길게 누르기라, 이게 막히면 표적 맞추기 자체가 불가능합니다.
+   자바스크립트의 preventDefault 만으로는 iOS 사파리의 이 메뉴가 안 막힙니다.
+   아래 세 줄(특히 -webkit-touch-callout)이 반드시 있어야 합니다. */
+#stage{position:relative;background:#000;border-radius:9px;overflow:hidden;
+  width:max-content;max-width:100%;margin:0 auto;
+  -webkit-touch-callout:none;-webkit-user-select:none;-ms-user-select:none;user-select:none;
+  touch-action:none}
+#stage *{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+/* 세로 화면에서 미리보기가 화면을 다 잡아먹지 않도록 높이를 제한합니다.
+   폭·높이 모두 auto 로 두고 최대치만 정하면 비율이 유지된 채 줄어들고,
+   요소 상자가 곧 영상 크기가 되므로 좌표 변환을 손댈 필요가 없습니다. */
+#video{display:block;background:#000;width:auto;height:auto;
+  max-width:100%;max-height:42vh;pointer-events:none;-webkit-user-drag:none}
 #overlay{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none}
+
+/* ---------- 표적 맞추기 전용 전체 화면 ---------- */
+#stageHostF{position:fixed;inset:0;z-index:60;background:#000;display:none;
+  align-items:center;justify-content:center}
+body.fs{overflow:hidden}
+body.fs #stageHostF{display:flex}
+body.fs #stage{border-radius:0;max-width:100vw}
+body.fs #video{max-height:74vh;max-width:100vw}
+body.fs .hint,body.fs .badge{display:none!important}
+#fsTop{position:fixed;left:0;right:0;top:0;z-index:62;padding:11px 14px;color:#fff;
+  font-size:14px;line-height:1.55;text-align:center;background:rgba(0,0,0,.86)}
+#fsTop em{display:block;font-style:normal;font-size:12px;opacity:.78;margin-top:3px}
+#fsBar{position:fixed;left:0;right:0;bottom:0;z-index:62;padding:10px 12px;
+  background:rgba(0,0,0,.9);display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+#fsBar button{flex:0 0 auto;padding:11px 14px;font-size:14px}
+#fsInfo{position:fixed;left:0;right:0;bottom:62px;z-index:62;text-align:center;
+  color:#fff;font-family:var(--mono);font-size:11.5px;opacity:.85}
 .badge{position:absolute;left:8px;top:8px;z-index:4;font-family:var(--mono);font-size:11px;
   color:#fff;background:rgba(0,0,0,.62);padding:4px 8px;border-radius:5px;line-height:1.45;white-space:pre}
 /* ※ pointer-events:none — 이게 없으면 배지·안내문이 영상 위의 탭을 가로채,
@@ -112,8 +143,14 @@ td.n{font-family:var(--mono);text-align:right}
 .hint em{display:block;font-style:normal;font-size:11.5px;opacity:.8;margin-top:3px;line-height:1.45}
 #loupe{position:absolute;width:180px;height:180px;border-radius:50%;border:3px solid #fff;
   overflow:hidden;pointer-events:none;display:none;z-index:5;background:#000}
-#loupe canvas{width:180px;height:180px;display:block}
-#loupeX{position:absolute;left:0;top:0;width:180px;height:180px;pointer-events:none}
+#loupe canvas{width:100%;height:100%;display:block}
+#loupeX{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+/* ★ 전체 화면에서는 돋보기를 화면 위쪽에 크게 고정합니다 ★
+   손가락을 따라다니면 정작 손가락이 돋보기를 가립니다.
+   세로 화면에서는 영상 위아래에 검은 여백이 남으므로 그 자리를 씁니다. */
+body.fs #loupe{position:fixed;width:250px;height:250px;left:50%;margin-left:-125px;border-width:4px}
+body.fs #loupe.lo-top{top:64px;bottom:auto}
+body.fs #loupe.lo-bot{bottom:76px;top:auto}
 
 /* ---------- 수치판 ---------- */
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
@@ -176,6 +213,21 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 </style>
 </head>
 <body>
+
+<!-- 표적 맞추기 전용 전체 화면 — 스크롤 없이 한 화면에서 끝냅니다 -->
+<div id="stageHostF">
+  <div id="fsTop"></div>
+  <div id="fsInfo"></div>
+  <div id="fsBar">
+    <button class="ghost sm" id="fsCancel">취소</button>
+    <button class="ghost sm" data-fit="s-" data-tune>크기 −</button>
+    <button class="ghost sm" data-fit="s+" data-tune>크기 +</button>
+    <button class="ghost sm" data-fit="r-" data-tune>회전 −</button>
+    <button class="ghost sm" data-fit="r+" data-tune>회전 +</button>
+    <button class="ghost sm" data-fit="auto" data-tune>링에 맞추기</button>
+    <button class="sm" id="fsDone">완료</button>
+  </div>
+</div>
 
 <!-- 카메라 미리보기 — 교사/학생 화면 사이를 이동한다 (스트림이 끊기지 않음) -->
 <div id="stagePark" style="display:none">
@@ -927,7 +979,7 @@ async function startCamera(){
    영상 블록은 문서에서 제거되지 않고 부모만 바뀌므로 스트림이 끊기지 않습니다.
    교사가 표적을 맞출 때는 교사 화면에, 학생이 사격할 때는 학생 화면에 붙입니다. */
 function moveStage(where){
-  const host=document.getElementById(where==='T'?'stageHostT':'stageHostS');
+  const host=document.getElementById(where==='F'?'stageHostF':where==='T'?'stageHostT':'stageHostS');
   if(host && stage.parentNode!==host){ host.appendChild(stage); }
   setTimeout(resizeOverlay,30);
 }
@@ -955,14 +1007,34 @@ const LOUPE_SRC=48, FINE_GAIN=0.25;
 let calibPts=[],calibIdx=0,dragging=false,anchorPt=null,candPt=null;
 const loupe=document.getElementById('loupe'),lctx=document.getElementById('loupeC').getContext('2d');
 
+/* ★ 표적 맞추기 전용 전체 화면 ★
+   미리보기가 작고 화면 아래에 묻혀 있으면, 확대해서 봐도 손가락으로 중앙을 맞추기가
+   어렵고 스크롤 때문에 화면이 계속 흔들립니다. 맞추는 동안에는 화면 전체를 씁니다. */
+function enterFS(){
+  document.body.classList.add('fs');
+  moveStage('F'); tuneFS(false);
+  setTimeout(resizeOverlay,60);
+}
+function exitFS(){
+  document.body.classList.remove('fs');
+  moveStage('T');
+  setTimeout(resizeOverlay,60);
+}
+function tuneFS(on){
+  document.querySelectorAll('#fsBar [data-tune]').forEach(b=>b.style.display=on?'':'none');
+  document.getElementById('fsDone').style.display=on?'':'none';
+  const inf=document.getElementById('fsInfo');
+  if(inf) inf.textContent = on
+    ? `크기 ${(E.fitScale*100).toFixed(0)}% · 회전 ${E.fitRot.toFixed(0)}° · ${E.mmPerPx.toFixed(2)} mm/px` : '';
+}
 function beginAutoFit(){
   if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
   E.mode='autofit'; E.H=null; E.quad=null; E.roi=null; E.bg=null; E.fitDisc=null;
   document.getElementById('tcBg').disabled=true;
   badge.textContent='표적의 검은 원 안을 한 번 누르십시오';
-  showHint('표적 가운데 <b>검은 원 안</b>을 누르십시오<em>손가락을 대면 확대해서 보입니다 · 떼면 인식합니다</em>');
+  showHint('표적 가운데 <b>검은 원 안</b>을 누르십시오<em>손가락을 대면 확대됩니다 · 천천히 옮긴 뒤 떼면 인식합니다</em>');
   log('자동 맞추기 대기');
-  updReady(); updFitUI();
+  enterFS(); updReady(); updFitUI();
 }
 function beginCalib(){
   if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
@@ -972,9 +1044,10 @@ function beginCalib(){
   badge.textContent='표적 네 모서리를 지정하십시오';
   showHint(`${CFG.mode==='ring'?'최외곽 링 위의':'표적 정사각형의'} <b>${cnames()[0]}</b> 지점을 누르십시오<em>손가락을 <b>댄 채로 조금씩 끌어</b> 맞추십시오</em>`);
   log('캘리브레이션 시작');
-  updReady();
+  enterFS(); updReady();
 }
-function showHint(h){ hintEl.innerHTML=h; hintEl.style.display='block'; }
+function showHint(h){ hintEl.innerHTML=h; hintEl.style.display='block';
+  const t=document.getElementById('fsTop'); if(t) t.innerHTML=h; }
 function hideHint(){ hintEl.style.display='none'; }
 function drawLoupe(p,ev){
   const SRC = E.mode==='autofit' ? LOUPE_SRC*2.6 : LOUPE_SRC;   // 자동 맞추기는 조금 넓게
@@ -982,6 +1055,13 @@ function drawLoupe(p,ev){
   let sx=Math.max(0,Math.min(E.vw-SRC,p.x-half)), sy=Math.max(0,Math.min(E.vh-SRC,p.y-half));
   lctx.imageSmoothingEnabled=false;
   lctx.drawImage(video,sx,sy,SRC,SRC,0,0,180,180);
+  if(document.body.classList.contains('fs')){
+    /* 손가락이 있는 쪽의 반대편에 붙입니다 — 어느 위치를 누르든 돋보기가 가리지 않습니다 */
+    const up = ev.clientY > window.innerHeight*0.5;
+    loupe.classList.toggle('lo-top', up);
+    loupe.classList.toggle('lo-bot', !up);
+    loupe.style.left=''; loupe.style.top=''; loupe.style.display='block'; return;
+  }
   const {r}=dispScale();
   let lx=(ev.clientX-r.left)-90, ly=(ev.clientY-r.top)-200;
   if(ly<4) ly=(ev.clientY-r.top)+30;
@@ -1009,9 +1089,14 @@ overlay.addEventListener('pointermove',ev=>{
 overlay.addEventListener('pointerup',ev=>{
   if(E.mode==='autofit'&&dragging){ ev.preventDefault();
     dragging=false; loupe.style.display='none';
-    if(autoFit(candPt.x,candPt.y)){ E.mode='idle'; hideHint();
+    if(autoFit(candPt.x,candPt.y)){ E.mode='idle';
       badge.textContent='표적 인식 완료\n링이 인쇄물과 맞는지 확인하십시오';
-      document.getElementById('tcBg').disabled=false; updReady(); updFitUI(); }
+      document.getElementById('tcBg').disabled=false; updReady(); updFitUI();
+      if(document.body.classList.contains('fs')){
+        showHint('<b>인쇄된 링과 초록 링이 겹치는지</b> 보십시오<em>어긋나면 아래 단추로 맞춘 뒤 [완료]</em>');
+        tuneFS(true);
+      } else hideHint();
+    }
     return; }
   if(E.mode!=='calib'||!dragging)return; ev.preventDefault();
   dragging=false; loupe.style.display='none';
@@ -1026,6 +1111,7 @@ function finishCalib(){
   if(!buildTransform()){ alert('네 점으로 표적면을 계산할 수 없습니다. 다시 시도하십시오.');
     E.quad=null;E.mode='idle';return; }
   E.mode='idle';
+  if(document.body.classList.contains('fs')) exitFS();
   save('sl.quad',{vw:E.vw,vh:E.vh,quad:E.quad});
   document.getElementById('tcBg').disabled=false;
   badge.textContent='표적 인식 완료\n[배경 학습]을 누르십시오';
@@ -2189,6 +2275,22 @@ document.getElementById('tcUnlock').addEventListener('click',()=>{
 document.getElementById('tcCam').addEventListener('click',startCamera);
 document.getElementById('tcCalib').addEventListener('click',beginCalib);
 document.getElementById('tcBg').addEventListener('click',beginBg);
+document.getElementById('fsCancel').addEventListener('click',()=>{
+  E.mode='idle'; dragging=false; loupe.style.display='none'; hideHint(); exitFS(); updReady();
+});
+document.getElementById('fsDone').addEventListener('click',()=>{ hideHint(); exitFS(); });
+/* 전체 화면의 미세 조정 단추는 교사 화면의 것과 같은 처리를 씁니다 */
+document.getElementById('fsBar').addEventListener('click',ev=>{
+  const b=ev.target.closest('button[data-fit]'); if(!b) return;
+  applyFit(b.dataset.fit); tuneFS(true);
+});
+/* ★ 길게 누르기 메뉴·선택·드래그 차단 ★ */
+['contextmenu','selectstart','dragstart'].forEach(t=>{
+  stage.addEventListener(t,e=>e.preventDefault());
+  const f=document.getElementById('stageHostF'); if(f) f.addEventListener(t,e=>e.preventDefault());
+});
+stage.addEventListener('touchstart',e=>{ if(E.mode==='calib'||E.mode==='autofit') e.preventDefault(); },{passive:false});
+stage.addEventListener('touchmove', e=>{ if(E.mode==='calib'||E.mode==='autofit') e.preventDefault(); },{passive:false});
 document.getElementById('tcAuto').addEventListener('click',beginAutoFit);
 
 /* ---------- 자동 맞추기 미세 조정 ---------- */
@@ -2199,9 +2301,8 @@ function updFitUI(){
   if(on) document.getElementById('tcFitInfo').innerHTML=
     `크기 <b>${(E.fitScale*100).toFixed(0)}%</b> · 회전 <b>${E.fitRot.toFixed(0)}°</b> · 해상도 ${E.mmPerPx.toFixed(2)} mm/px`;
 }
-document.getElementById('tcFitBox').addEventListener('click',ev=>{
-  const b=ev.target.closest('button[data-fit]'); if(!b) return;
-  const k=b.dataset.fit;
+/* 교사 화면과 전체 화면이 같은 처리를 씁니다 */
+function applyFit(k){
   if(k==='s-') E.fitScale=Math.max(0.5,E.fitScale-0.01);
   else if(k==='s+') E.fitScale=Math.min(2,E.fitScale+0.01);
   else if(k==='r-') E.fitRot-=5;
@@ -2211,6 +2312,10 @@ document.getElementById('tcFitBox').addEventListener('click',ev=>{
     updReady(); updFitUI(); return; }
   else { E.fitScale=1; E.fitRot=0; }
   reFit();
+}
+document.getElementById('tcFitBox').addEventListener('click',ev=>{
+  const b=ev.target.closest('button[data-fit]'); if(!b) return;
+  applyFit(b.dataset.fit);
 });
 
 /* ---------- 신호 측정 ---------- */
