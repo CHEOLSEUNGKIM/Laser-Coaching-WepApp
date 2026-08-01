@@ -518,6 +518,14 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
           <div style="flex:1 1 45%"><label class="fl">최소 면적(px)</label><input type="number" id="tcMinA" step="1" min="1"></div>
           <div style="flex:1 1 45%"><label class="fl">확정 프레임 수<i>2 이상이면 잡음에 강함</i></label><input type="number" id="tcMinF" step="1" min="1" max="6"></div>
           <div style="flex:1 1 45%"><label class="fl">재격발 대기(ms)</label><input type="number" id="tcCool" step="50" min="100"></div>
+          <div style="flex:1 1 100%;margin-top:4px">
+            <label style="display:flex;align-items:center;gap:7px;font-size:13.5px">
+              <input type="checkbox" id="tcRedOnly" style="width:18px;height:18px">
+              <span><b>붉은빛만 탄착으로 인정</b> (권장 · 켜 두십시오)</span></label>
+            <p class="note" style="margin:4px 0 0">인쇄된 검은 네모·링 선·글자는 무채색이라,
+            거치 흔들림이 만드는 가짜 점은 밝기로만 나타납니다. 붉은 정도를 함께 보면
+            <b>실측 기준 가짜 점이 전부 사라졌습니다.</b> 초록·파랑 레이저를 쓸 때만 끄십시오.</p>
+          </div>
           <div style="flex:1 1 45%"><label class="fl">프레임당 최대 덩어리<i>넘으면 그 프레임 폐기</i></label><input type="number" id="tcMaxB" step="1" min="1" max="8"></div>
           <div style="flex:1 1 45%"><label class="fl">회차당 발수</label><input type="number" id="tcPerRound" step="1"></div>
           <div style="flex:1 1 45%"><label class="fl">적색 임계값</label><input type="number" id="tcRed" step="1"></div>
@@ -633,10 +641,28 @@ const CFG=Object.assign({
      받은 설정 파일에는 dia 300 이 들어 있었는데, 그러면 점수는 맞지만
      보고되는 거리(탄착군 mm 등)가 2.4배로 부풀려집니다. */
   preset:'lh4',mode:'square',calib:125,dia:125,rings:10,
-  perRound:10, blackRatio:0.4, red:100,lum:100,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
+  perRound:10, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
+  redOnly:true,
   serverUrl:''
 }, load(K.cfg,{}));
-function saveCfg(){ save(K.cfg,CFG); MAXB=CFG.maxBlobs||3; }
+/* ★ 검출 설정 자동 갱신 ★
+   검출 방식을 바꾸면 예전 임계값은 뜻이 달라집니다. 그런데 설정은 기기에 저장되어
+   있어서 새 기본값이 적용되지 않습니다. 실제로 현장에서 예전 값(임계 50 · 최소면적 2 ·
+   확정프레임 1)이 그대로 남아 가짜 탄착이 쏟아졌습니다.
+   그래서 엔진 판이 바뀌면 **검출 관련 값만** 새 기본값으로 되돌립니다.
+   명부·기록·표적 규격은 건드리지 않습니다. */
+const ENGINE_VER=3;
+(function migrateCfg(){
+  if(CFG.engine===ENGINE_VER) return;
+  const before={red:CFG.red,lum:CFG.lum,minA:CFG.minA,minF:CFG.minF,cool:CFG.cool,maxBlobs:CFG.maxBlobs};
+  CFG.red=45; CFG.lum=45; CFG.minA=4; CFG.minF=2; CFG.cool=400; CFG.maxBlobs=3; CFG.redOnly=true;
+  CFG.calibratedAt=0; CFG.engine=ENGINE_VER;
+  save(K.cfg,CFG);
+  setTimeout(()=>log('검출 방식이 새로워져 관련 설정을 기본값으로 되돌렸습니다 '
+    +`(이전: 임계 ${before.red}·최소면적 ${before.minA}·확정프레임 ${before.minF}). `
+    +'수업 전에 [신호 측정]을 한 번 해 주십시오.'),300);
+})();
+function saveCfg(){ save(K.cfg,CFG); MAXB=CFG.maxBlobs||3; RED_AND=CFG.redOnly!==false; }
 
 /* 코칭 규칙 임계값은 '링 폭' 단위로 둔다.
    설계기록의 규칙표는 300mm 표적(1링 15mm) 기준으로 쓰였으므로 링 단위로 환산해 두면
@@ -945,6 +971,8 @@ function tbWarp(B,out,w,h,dx,dy){
 }
 function tbReset(){ TB.cnt=0; TB.idx=0; }
 const EDGE=4;      // 가장자리 제외 폭(화소)
+let RED_AND=true;    // 붉은빛으로 가려낼지 (기본 켬)
+let RED_RATIO=0.4;   // '붉은 정도 ÷ 밝기'가 이 값 미만이면 무채색으로 보고 버립니다
 let GRAD_K=0;      // 시간 띠통과를 쓰면 기울기 보정이 필요 없습니다 (실측으로 확인)
 const MB={rl:null,rr:null,tp:null,al:null,ar:null,z:null,bd:null,n:0,key:''};
 function mbEnsure(n,key){
@@ -1106,8 +1134,27 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
     const zl=10*al[i]/dl, zr=10*ar[i]/dr;
     if(zr>maxRed){maxRed=zr;mrx=i%w;mry=(i-i%w)/w;}
     if(zl>maxLum){maxLum=zl;mlx=i%w;mly=(i-i%w)/w;}
-    const v=Math.max(zr/thRed, zl/thLum);
-    z[i]=Math.max(zl,zr);
+    /* ★★ 붉은빛으로 가려냅니다 ★★
+       실제 화면을 재현해 두 값의 비(붉은 정도 ÷ 밝기)를 재 보니 이렇게 갈렸습니다.
+
+         진짜 레이저 : 중앙값 7.7 ~ 11.1   (하위 10%도 4.1 이상)
+         가짜 점     : 중앙값 0.03         (상위 10%도 0.10 이하)
+
+       100배 차이입니다. 인쇄된 검은 네모·링 선·글자는 모두 무채색이라,
+       거치 흔들림이 만드는 가짜 신호는 '밝기'로만 나타나고 '붉은 정도'로는
+       거의 나타나지 않기 때문입니다.
+       그래서 붉은 정도를 본 신호로 삼고, 무채색 변화(손·그림자·흔들림)는
+       비율로 걸러냅니다. 조명이 밝든 어둡든 이 비율은 그대로입니다. */
+    let v, zz;
+    if(RED_AND){
+      const chroma = zr >= RED_RATIO*zl;      // 무채색 변화가 아닌가
+      zz = chroma ? zr : 0;
+      v  = zz/thRed;
+    } else {
+      v  = Math.max(zr/thRed, zl/thLum);
+      zz = Math.max(zl,zr);
+    }
+    z[i]=zz;
     wgt[i]=v>1?v:0; lab[i]=v>1?-1:0; if(v>1)any=true;
     /* 화면 가장자리는 정렬 보간이 성립하지 않아 가짜 신호가 납니다 */
     { const x=i%w, y=(i-x)/w;
@@ -1692,8 +1739,8 @@ function tick(){
          ② 75 (잡음의 7.5배) — 실측상 이 위에서는 어두운 레이저를 놓칩니다.
          검증 중에 누가 실수로 쏘면 그게 '유령'으로 세어져 임계값이 계속 올라가는데,
          ②가 없으면 그 한 번의 실수로 수업 내내 검출이 안 됩니다. */
-      const capR=Math.min(220, Math.max(60, Math.round((E.probe.red||999)*0.7)));
-      const capL=Math.min(220, Math.max(60, Math.round((E.probe.lum||999)*0.7)));
+      const capR=Math.min(120, Math.max(35, Math.round((E.probe.red||999)*0.7)));
+      const capL=Math.min(120, Math.max(35, Math.round((E.probe.lum||999)*0.7)));
       if(VF.round>=5 || CFG.red>=capR || CFG.lum>=capL){ endVerify(false); }
       else { VF.round++;
         CFG.red=Math.min(capR,Math.round(CFG.red*1.2));
@@ -2837,6 +2884,11 @@ function refreshTeacher(){
     `${s.cls},${s.num},${s.nick},${s.ov}`).join('\n');
   updReady();
 }
+{ const cb=document.getElementById('tcRedOnly');
+  const sync=()=>{ cb.checked=CFG.redOnly!==false; RED_AND=cb.checked; };
+  cb.addEventListener('change',()=>{ CFG.redOnly=cb.checked; RED_AND=cb.checked; saveCfg();
+    log('붉은빛 판별 '+(cb.checked?'켬':'끔')); });
+  sync(); window.__syncRedOnly=sync; }
 document.getElementById('tcPreset').addEventListener('change',ev=>{
   const p=PRESETS[ev.target.value];
   CFG.preset=ev.target.value;
@@ -2963,6 +3015,7 @@ function autoTh(pr){
      그래서 **신호의 절반**에서 시작하고, 실제로 유령이 나오면 그때 검증 단계가
      올리도록 역할을 나눕니다. */
   const gm=Math.max(0.5*sig, 0.9*nz);
+  if(true) return Math.round(Math.min(120,Math.max(35,gm)));
   /* 시간 띠통과로 바꾸면서 잡음의 성격이 달라졌습니다. 망점 인쇄물 + 거치대 진동
      환경을 재현해 실측한 결과, 안정적인 구간은 잡음의 6~20배였습니다.
      기기·조명·거치 상태에 따라 달라지므로 폭을 넓게 두고 측정값이 정하게 합니다. */
@@ -3006,10 +3059,10 @@ function updProbe(){
     h+='<span class="tag bad">신호 없음</span> 카메라가 레이저를 전혀 못 보고 있습니다.<br>'
       +'① 레이저가 <b>표적 안</b>을 비추는지 ② 방아쇠를 당길 때 실제로 켜지는지 ③ 배경 학습 뒤 카메라가 움직이지 않았는지<br>'
       +'④ 아두이노 <b>PULSE_MS 를 150~200</b>으로 늘려 보십시오.';
-  } else if(sig < 60 || sig < noise*1.25){
+  } else if(sig < 40 || sig < noise*1.25){
     /* 단위가 '잡음의 몇 배 ×10' 이므로 34 = 3.4배. 이보다 낮으면 잡음과 겹칩니다. */
     h+=`<span class="tag bad">신호가 약합니다</span> 레이저 <b>잡음의 ${(sig/10).toFixed(1)}배</b>`
-      +` · 안 쏠 때 ${(noise/10).toFixed(1)}배 — 안정적으로 가르려면 <b>6배 이상</b>이어야 합니다.<br>`
+      +` · 안 쏠 때 ${(noise/10).toFixed(1)}배 — 안정적으로 가르려면 <b>4배 이상</b>이어야 합니다.<br>`
       +'· <b>태블릿 거치를 단단히 하십시오.</b> 미세한 흔들림이 인쇄된 망점과 만나면 잡음이 크게 늘어납니다<br>'
       +'· 조명을 낮추십시오 (바탕 '+bb.toFixed(0)+')<br>'
       +'· 태블릿을 표적에 더 가까이 두거나 레이저를 더 밝게 하십시오<br>'
@@ -3025,7 +3078,7 @@ function updProbe(){
   adv.innerHTML=h;
   const ap=document.getElementById('pvApply');
   if(ap) ap.onclick=()=>{
-    const g=autoTh(pr); CFG.red=g; CFG.lum=g;
+    const g=autoTh(pr); CFG.red=g; CFG.lum=g; CFG.calibratedAt=Date.now();
     saveCfg(); refreshTeacher();
     log(`임계값 1차 설정: 잡음의 ${(g/10).toFixed(1)}배 — 이제 검증합니다`);
     startVerify();
@@ -3114,6 +3167,48 @@ document.getElementById('tcShortPulse').addEventListener('click',()=>{
   log('짧은 펄스 모드: 확정 프레임 1, 최소 면적 '+CFG.minA);
   alert('확정 프레임을 1로 내렸습니다.\n한 프레임에만 잡히는 레이저도 인정합니다.\n\n잡음에 약해지므로 [신호 측정]으로 검증을 다시 하십시오.');
 });
+/* ★ 파일 내보내기 ★
+   아이패드 사파리에서는 <a download> 가 잘 동작하지 않습니다. 실제로 두 번이나
+   "눌렀는데 저장이 안 되어 있다"는 보고를 받았습니다(JSON 은 되고 PNG 는 안 됨 —
+   toBlob 이 비동기라 사용자 조작 흐름이 끊기기 때문입니다).
+   그래서 ①공유 시트 → ②내려받기 → ③화면에 띄워 길게 눌러 저장, 순으로 시도합니다. */
+async function exportBlob(blob,filename,label){
+  try{
+    const f=new File([blob],filename,{type:blob.type});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){
+      await navigator.share({files:[f],title:filename});
+      log(`${label} 공유 완료: ${filename}`); return 'share';
+    }
+  }catch(e){ if(e&&e.name==='AbortError'){ log(`${label} 공유 취소`); return 'abort'; } }
+  try{
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),8000);
+    log(`${label} 내려받기: ${filename}`); return 'download';
+  }catch(e){}
+  showBlobFallback(blob,filename,label); return 'view';
+}
+/* 마지막 수단 — 화면에 띄워 놓고 길게 눌러 저장하게 합니다 */
+function showBlobFallback(blob,filename,label){
+  const url=URL.createObjectURL(blob);
+  const ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.92);'
+    +'display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px;gap:10px';
+  const isImg=/image/.test(blob.type);
+  ov.innerHTML=`<p style="color:#fff;font-size:14px;text-align:center;line-height:1.6;margin:0">
+      <b>${label}</b><br>${isImg?'그림을 <b>길게 눌러</b> [이미지 저장]을 고르십시오.':'아래 내용을 전부 복사해 보내 주십시오.'}
+      <br><span style="opacity:.7;font-size:12px">${filename}</span></p>`;
+  if(isImg){ const im=document.createElement('img'); im.src=url;
+    im.style.cssText='max-width:94vw;max-height:70vh;border-radius:8px;background:#fff'; ov.appendChild(im); }
+  else { const ta=document.createElement('textarea');
+    ta.style.cssText='width:94vw;height:52vh;font-family:var(--mono);font-size:11px';
+    blob.text().then(t=>{ta.value=t;}); ov.appendChild(ta); }
+  const btn=document.createElement('button'); btn.textContent='닫기';
+  btn.className='sm'; btn.style.cssText='padding:12px 26px';
+  btn.onclick=()=>{ ov.remove(); URL.revokeObjectURL(url); };
+  ov.appendChild(btn); document.body.appendChild(ov);
+}
 /* ★ 카메라 사진 저장 ★
    표적 인식이 안 될 때 가장 필요한 것은 '카메라가 실제로 무엇을 보고 있는가' 입니다.
    배경 학습·표적 맞추기가 끝나야만 진단 자료를 만들 수 있게 해 두었더니,
@@ -3124,16 +3219,13 @@ function savePhoto(){
   const cv=document.createElement('canvas'); cv.width=E.vw; cv.height=E.vh;
   cv.getContext('2d').drawImage(video,0,0,E.vw,E.vh);
   const stamp=new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);
-  cv.toBlob(bl=>{
-    const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
-    a.download=`shotline_photo_${stamp}.png`; a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
-  },'image/png');
+  cv.toBlob(bl=>{ exportBlob(bl,`shotline_photo_${stamp}.png`,'카메라 사진'); },'image/png');
   let cap={},set={};
   try{ const tr=E.stream&&E.stream.getVideoTracks()[0];
     if(tr){ if(tr.getCapabilities) cap=tr.getCapabilities()||{};
             if(tr.getSettings) set=tr.getSettings()||{}; } }catch(e){}
-  const meta={ver:'1.9',when:new Date().toISOString(),vw:E.vw,vh:E.vh,fps:Math.round(E.fps),
+  const meta={ver:'2.1',engine:ENGINE_VER,when:new Date().toISOString(),vw:E.vw,vh:E.vh,fps:Math.round(E.fps),
+    calibratedAt:CFG.calibratedAt||0, redOnly:CFG.redOnly!==false,
     cfg:JSON.parse(JSON.stringify(CFG)),
     fit:E.fitDisc?{cx:E.fitDisc.cx,cy:E.fitDisc.cy,rmin:E.fitDisc.rmin,rmax:E.fitDisc.rmax,
       contrast:E.fitDisc.contrast,A2:E.fitDisc.A2,A4:E.fitDisc.A4,ring:E.fitDisc.ring,manual:!!E.fitDisc.manual}:null,
@@ -3141,8 +3233,7 @@ function savePhoto(){
     zoom:E.zoom||1, camZoom:E.camZoom||null,
     capabilities:cap, settings:set, ua:navigator.userAgent};
   const bl2=new Blob([JSON.stringify(meta,null,1)],{type:'application/json'});
-  const a2=document.createElement('a'); a2.href=URL.createObjectURL(bl2);
-  a2.download=`shotline_photo_${stamp}.json`; setTimeout(()=>a2.click(),700);
+  setTimeout(()=>exportBlob(bl2,`shotline_photo_${stamp}.json`,'설정값'),1400);
   log(`카메라 사진 저장: ${E.vw}×${E.vh}`);
   const el=document.getElementById('tcReady');
   if(el) el.innerHTML='<span class="tag ok">사진 저장됨</span> 내려받은 <b>PNG·JSON 두 파일</b>을 보내 주십시오.';
@@ -3175,20 +3266,15 @@ function endRec(){
   const cx=cv.getContext('2d');
   for(let i=0;i<k;i++){ const im=new ImageData(new Uint8ClampedArray(REC.frames[i]),w,h); cx.putImageData(im,0,i*h); }
   const stamp=new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);
-  cv.toBlob(bl=>{
-    const a=document.createElement('a'); a.href=URL.createObjectURL(bl);
-    a.download=`shotline_diag_${stamp}.png`; a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
-  },'image/png');
-  const meta={ver:'1.6',when:new Date().toISOString(),vw:E.vw,vh:E.vh,fps:Math.round(E.fps),
+  cv.toBlob(bl=>{ exportBlob(bl,`shotline_diag_${stamp}.png`,'진단 영상'); },'image/png');
+  const meta={ver:'2.1',engine:ENGINE_VER,when:new Date().toISOString(),vw:E.vw,vh:E.vh,fps:Math.round(E.fps),
     roi:E.roi,roiScale:E.roiScale,frames:k,w,h,mmPerPx:E.mmPerPx,bgBright:Math.round(bgBrightness()),
     cfg:JSON.parse(JSON.stringify(CFG)), aeLast:E.aeLast||null,
     probe:{noiseRed:E.probe.noiseRed,noiseLum:E.probe.noiseLum,red:E.probe.red,lum:E.probe.lum,
            pxMax:E.probe.pxMax,aeMax:E.probe.aeMax,floodF:E.probe.floodF},
     locked:!!E.locked, ua:navigator.userAgent};
   const bl2=new Blob([JSON.stringify(meta,null,1)],{type:'application/json'});
-  const a2=document.createElement('a'); a2.href=URL.createObjectURL(bl2);
-  a2.download=`shotline_diag_${stamp}.json`; setTimeout(()=>a2.click(),700);
+  setTimeout(()=>exportBlob(bl2,`shotline_diag_${stamp}.json`,'진단 설정값'),1400);
   REC.frames=[];
   document.getElementById('tcRec').disabled=false;
   const el=document.getElementById('tcRecInfo');
@@ -3199,10 +3285,14 @@ function endRec(){
 function updReady(){
   const el=document.getElementById('tcReady'); if(!el) return;
   const ok=!!(E.bg&&E.bg.ready);
+  const nocal = !CFG.calibratedAt;
   const q=document.getElementById('tcQuality');
   el.innerHTML= !E.vw ? '<span class="tag mid">카메라 꺼짐</span> [카메라 시작]을 누르십시오.'
     : !E.H ? '<span class="tag mid">표적 미지정</span> [표적 자동 맞추기]를 누르고 검은 원 안을 한 번 누르십시오.'
     : !ok ? '<span class="tag mid">배경 미학습</span> [배경 학습]을 누르십시오.'
+    : nocal ? `<span class="tag mid">신호 측정 필요</span> 표적·배경은 준비됐습니다. `
+        +`<b>[신호 측정 시작] → [임계값 자동 설정 후 검증]</b>을 한 번 해 주십시오.<br>`
+        +`<span class="muted">기기·조명마다 잡음이 다릅니다. 이 단계를 건너뛰면 가짜 탄착이 생기거나 검출을 놓칩니다. · ${E.mmPerPx.toFixed(2)} mm/px</span>`
     : `<span class="tag ok">준비 완료</span> 학생이 사격할 수 있습니다. · ${E.mmPerPx.toFixed(2)} mm/px`;
   const tb=document.getElementById('tcTest'); if(tb) tb.disabled=!ok;
   const pb=document.getElementById('tcProbe'); if(pb) pb.disabled=!ok;
@@ -3338,6 +3428,7 @@ window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,ringMm,goTab,
   _grab:()=>grabROI(),
   _resetT:()=>{ MB.key=''; }, _bp:(v)=>{BPR=v;}, _scan:(f)=>scanTarget(f),
   _gk:(v)=>{GRAD_K=v;}, get _gradK(){return GRAD_K;}, _tbReset:()=>tbReset(),
+  _redAnd:(v)=>{RED_AND=v;}, get _redAndOn(){return RED_AND;}, _redRatio:(v)=>{RED_RATIO=v;},
   _detectTh:(img,thR,thL,minA,maxA)=>detect(img,E.bg,E.pw,E.ph,thR,thL,minA,maxA),
   _detect:(img,bg,w,h)=>detect(img,bg,w,h,CFG.red,CFG.lum,CFG.minA,CFG.maxA),
   get roster(){return ROSTER;}, get rounds(){return ROUNDS;}, get shots(){return SHOTS;},
