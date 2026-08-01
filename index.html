@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v2.5a</title>
+<title>샷라인 SHOTLINE v2.6</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -517,6 +517,15 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
         </div>
         <p class="note" id="tcTestInfo"></p>
         <div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:9px">
+          <label class="fl" style="margin-top:0">인식 민감도</label>
+          <div class="row" id="tcSensBox" style="gap:6px">
+            <button class="ghost sm" data-sens="high" style="flex:1">민감하게</button>
+            <button class="ghost sm" data-sens="mid"  style="flex:1">보통</button>
+            <button class="ghost sm" data-sens="low"  style="flex:1">엄격하게</button>
+          </div>
+          <p class="note" id="tcSensInfo" style="margin-top:5px"></p>
+        </div>
+        <div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:9px">
           <label style="display:flex;align-items:center;gap:8px;font-size:14px">
             <input type="checkbox" id="tcSound" style="width:20px;height:20px">
             <span><b>격발 효과음</b> — 쏠 때 총성이 납니다</span></label>
@@ -656,7 +665,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 <script>
 "use strict";
 /* ==========================================================================
-   샷라인 학생·교사 앱 v2.5a (2026-08-01)
+   샷라인 학생·교사 앱 v2.6 (2026-08-01)
    --------------------------------------------------------------------------
    설계 원칙
      · 집단은 '태블릿 설정'이 아니라 '학생 명부'에서 판정한다
@@ -686,7 +695,7 @@ const CFG=Object.assign({
      기록되는 거리(탄착군 mm 등)가 2.4배로 부풀려집니다. */
   preset:'lh4',mode:'square',calib:125,dia:125,rings:10,
   perRound:10, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
-  redOnly:true, calibratedAt:0, sound:true, soundVol:0.7,
+  redOnly:true, calibratedAt:0, sound:true, soundVol:0.7, sens:'mid',
   serverUrl:''
 }, load(K.cfg,{}));
 /* ★ 검출 설정 자동 갱신 ★
@@ -1697,7 +1706,34 @@ async function lockCamera(){
    진행하고 있었습니다. 단계가 하나 더 있으면 결국 건너뛰게 됩니다.
    그래서 **배경 학습이 끝나면 3초 동안 앱이 스스로 잡음을 재고 임계값을 정합니다.**
    쏠 필요 없이 기다리기만 하면 됩니다. */
+/* ★ 민감도 ★
+   교실 조명·표적 인쇄물·레이저 밝기는 학교마다 다릅니다. 자동 보정이 대부분을
+   맞춰 주지만, 그래도 몇 발이 빠지거나 반대로 가짜가 보이면 교사가 한 번에
+   조정할 수 있어야 합니다. 자동으로 정해진 임계값에 이 배율만 곱합니다. */
+const SENS={high:0.7, mid:1.0, low:1.5};
+const SENSNAME={high:'민감하게', mid:'보통', low:'엄격하게'};
 const ACAL={on:false,t0:0,v:[]};
+/* 자동 보정으로 정해진 '원값'에 민감도 배율만 곱해 임계값을 다시 만듭니다.
+   민감도를 바꿀 때 배경 학습을 다시 할 필요가 없습니다. */
+function applySens(){
+  const raw=CFG.calibRaw||0;
+  const th=Math.round(Math.max(45, (raw||45)*SENS[CFG.sens||'mid']));
+  CFG.red=th; CFG.lum=th; saveCfg(); updSensUI();
+  return th;
+}
+function updSensUI(){
+  const box=document.getElementById('tcSensBox'); if(!box) return;
+  const cur=CFG.sens||'mid';
+  box.querySelectorAll('button[data-sens]').forEach(b=>{
+    const on=b.dataset.sens===cur;
+    b.className = on ? 'sm' : 'ghost sm';
+  });
+  const el=document.getElementById('tcSensInfo');
+  if(el) el.innerHTML = CFG.calibratedAt
+    ? `자동 보정값 <b>${Math.round(CFG.calibRaw||0)}</b> × ${SENS[cur]} = 임계값 <b>${CFG.red}</b>`
+      + `<br><span class="muted">쏜 발이 빠지면 <b>민감하게</b>, 쏘지 않은 점이 찍히면 <b>엄격하게</b>. 배경 학습을 다시 할 필요는 없습니다.</span>`
+    : '<span class="muted">[배경 학습]을 하면 이 기기·이 조명에 맞게 자동으로 정해집니다.</span>';
+}
 function beginAutoCal(){
   ACAL.on=true; ACAL.t0=performance.now(); ACAL.v=[];
   E.mode='autocal';
@@ -1725,15 +1761,29 @@ function autoCalTick(now){
   wins.sort((x,y)=>x-y);
   const p95 = wins.length ? wins[Math.floor(wins.length/2)] : pick(ACAL.v);
   const spread = wins.length>1 ? (wins[wins.length-1]-wins[0]) : 0;
-  /* 잡음 상위 5%의 **두 배**.
-     세 배로 두었더니 절반 정도만 잡혔습니다(현장 보고). 재현해 보니 흔들림이 조금만
-     있어도 다섯 발 중 한 발까지 떨어졌고, 두 배로 낮추면 다섯 발 모두 잡히면서
-     가짜 점은 그대로 0이었습니다. 붉은빛 판별이 이미 가짜를 막고 있으므로
-     임계값까지 높게 둘 이유가 없습니다. */
-  const th=Math.round(Math.max(45, p95*2));
-  CFG.red=th; CFG.lum=th; CFG.calibratedAt=Date.now(); saveCfg();
+  /* 잡음의 '보통 수준'도 함께 봅니다. 상위 5%만 보면 한 순간의 튐에 끌려갑니다. */
+  const med = (()=>{ const a=ACAL.v.slice().sort((x,y)=>x-y);
+    return a.length? a[Math.floor(a.length/2)] : 0; })();
+  /* ★ 배수를 2배 → 1.15배로 내렸습니다 ★
+     여기서 재는 값은 '한 프레임에서 가장 강한 덩어리'라는 이미 극단적인 값입니다.
+     그걸 다시 두 배 하면 실제로 필요한 것보다 네 배 가까이 높아집니다.
+     현장 기기(잡음 160 → 임계값 321)에서 80%만 잡힌 것이 이 때문이었습니다.
+
+     현장과 같은 조건(밝은 환경·색 잡음·손 흔들림)으로 합성 영상 26종을 만들어
+     임계값을 45부터 380까지 훑어 본 결과:
+       · 임계 60~90  → 검출 70/75, 가짜 0     ← 가장 좋음
+       · 임계 120    → 검출 55/75, 가짜 0
+       · 임계 321    → 검출  0/75            ← 현장 설정
+     가짜 탄착은 임계값이 아니라 **붉은빛 판별**이 막고 있으므로(진짜 7.7~11.1 대
+     가짜 0.03), 임계값을 높게 둘 이유가 없었습니다.
+
+     상위 5%의 1.15배를 쓰되, '보통 수준'의 1.5배를 넘지 않게 해서
+     한 순간의 튐에 끌려가지 않도록 합니다. */
+  const raw=Math.min(p95*1.15, med>0 ? med*1.5 : p95*1.15);
+  CFG.calibRaw=raw; CFG.calibratedAt=Date.now();
+  const th=applySens();
   badge.textContent='준비 완료';
-  log(`자동 잡음 보정 완료: 잡음 ${wins.map(w=>w.toFixed(0)).join('/')} → 가운데 ${p95.toFixed(0)} · 임계값 ${th}`);
+  log(`자동 잡음 보정 완료: 잡음 ${wins.map(w=>w.toFixed(0)).join('/')} → 상위 ${p95.toFixed(0)} · 보통 ${med.toFixed(0)} · 민감도 ${SENSNAME[CFG.sens||'mid']} → 임계값 ${th}`);
   if(spread > Math.max(20, p95*0.6))
     log('⚠ 초마다 잡음이 크게 달랐습니다(흔들림·조명 깜빡임). 거치를 다시 확인하고 [배경 학습]을 한 번 더 하십시오.');
   if(document.getElementById('tcBody').style.display!=='none') refreshTeacher();
@@ -1875,7 +1925,7 @@ function track(hits,now){
        '2프레임 이상'을 일률적으로 요구하면 그런 발이 절반쯤 사라집니다.
        대신 **임계값의 2배를 넘는 강한 신호**는 한 프레임이어도 받아들입니다.
        붉은빛 판별을 이미 통과한 신호이므로 잡음일 가능성은 매우 낮습니다. */
-    const strong = t.peak>=1.6;   // 임계값의 1.6배 (실측: 1.6 이하에서 2프레임 펄스가 1/5→5/5, 가짜는 0 유지)
+    const strong = t.peak>=1.4;   // 임계값의 1.4배 — 합성 26종 훑기에서 1.35~1.45가 가장 좋았습니다(가짜 0)
     if(t.frames<CFG.minF && !strong){ E.rejF=(E.rejF||0)+1; E.rejFmax=Math.max(E.rejFmax||0,t.frames); continue; }
     if(t.last-t.start>LIFE){ E.rejL=(E.rejL||0)+1; continue; }
     /* 전역 최소 간격 — 사람이 0.4초 안에 두 발을 쏠 수는 없습니다.
@@ -1900,7 +1950,7 @@ function trackVerify(hits,now){
     const t=E.tracks[i];
     if(t.seen||now-t.last<GAP) continue;
     E.tracks.splice(i,1);
-    if((t.frames>=CFG.minF || t.peak>=1.6) && now-E.lastEmit>=CFG.cool){ E.lastEmit=now; VF.ghosts++; }
+    if((t.frames>=CFG.minF || t.peak>=1.4) && now-E.lastEmit>=CFG.cool){ E.lastEmit=now; VF.ghosts++; }
   }
 }
 function startLoop(){
@@ -3138,6 +3188,7 @@ document.getElementById('tcPinChange').addEventListener('click',()=>{
 document.getElementById('tcBack').addEventListener('click',()=>{ refreshLogin(); showScreen('scLogin'); });
 
 function refreshTeacher(){
+  updSensUI();
   // 학급/회차 선택
   const cls=Object.keys(ROSTER.classes).sort();
   const lk=lockState();
@@ -3487,6 +3538,14 @@ document.getElementById('tcRec').addEventListener('click',startRec);
     log('격발 효과음 '+(cb.checked?'켬':'끔')); if(cb.checked) playShot(); });
   sv.addEventListener('change',()=>{ CFG.soundVol=parseFloat(sv.value)||0.7; saveCfg(); sync(); playShot(); });
   document.getElementById('tcSoundTest').addEventListener('click',()=>{ sndUnlock(); playShot(); });
+  document.getElementById('tcSensBox').addEventListener('click',ev=>{
+    const b=ev.target.closest('button[data-sens]'); if(!b) return;
+    CFG.sens=b.dataset.sens;
+    const th=applySens();
+    log(`인식 민감도: ${SENSNAME[CFG.sens]} → 임계값 ${th}`);
+    refreshTeacher();
+  });
+  updSensUI();
   sync(); window.__syncSound=sync; }
 document.getElementById('tcTest').addEventListener('click',toggleTest);
 document.getElementById('tcTestClear').addEventListener('click',()=>{ TEST.shots=[]; diagReset(); updTestInfo(); });
@@ -3724,6 +3783,7 @@ if(location.protocol!=='https:'&&location.hostname!=='localhost')
    _testSetup/_testShot 은 카메라 없이 사격 흐름(채점·저장·코칭)을 검증하기 위한 것으로,
    실제 검출 경로(onShot 이후)를 그대로 통과시킵니다. */
 window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,diagCode,
+  _applySens:applySens, SENS,
   DRILLS,BASICS,MSG,bigShot,ringMm,goTab,
   _ae:(v)=>{AE_ON=v;}, get _aeOn(){return AE_ON;},
   _grab:()=>grabROI(),
