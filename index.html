@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v2.5</title>
+<title>샷라인 SHOTLINE v2.5a</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -516,6 +516,23 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
           <button class="ghost sm" id="tcTestClear" style="flex:0 1 28%">지우기</button>
         </div>
         <p class="note" id="tcTestInfo"></p>
+        <div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:9px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:14px">
+            <input type="checkbox" id="tcSound" style="width:20px;height:20px">
+            <span><b>격발 효과음</b> — 쏠 때 총성이 납니다</span></label>
+          <div class="row" style="margin-top:7px;align-items:center;gap:6px">
+            <div style="flex:1 1 55%"><label class="fl" style="margin-top:0">소리 크기</label>
+              <select id="tcSoundVol">
+                <option value="0.35">작게</option>
+                <option value="0.7">보통</option>
+                <option value="1">크게</option>
+              </select></div>
+            <div style="flex:1 1 40%"><button class="ghost sm" id="tcSoundTest" style="width:100%;margin-top:18px">소리 들어보기</button></div>
+          </div>
+          <p class="note" style="margin-top:5px">아이패드는 화면을 한 번 만져야 소리가 납니다.
+          <b>[소리 들어보기]</b>를 한 번 눌러 두면 수업 내내 잘 납니다.
+          체육관에서는 태블릿 음량도 올려 주십시오.</p>
+        </div>
         <div class="row" style="margin-top:7px">
           <button class="ghost sm" id="tcShortPulse">짧은 펄스 모드 (1프레임도 인정)</button>
         </div>
@@ -639,7 +656,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 <script>
 "use strict";
 /* ==========================================================================
-   샷라인 학생·교사 앱 v2.5 (2026-08-01)
+   샷라인 학생·교사 앱 v2.5a (2026-08-01)
    --------------------------------------------------------------------------
    설계 원칙
      · 집단은 '태블릿 설정'이 아니라 '학생 명부'에서 판정한다
@@ -669,7 +686,7 @@ const CFG=Object.assign({
      기록되는 거리(탄착군 mm 등)가 2.4배로 부풀려집니다. */
   preset:'lh4',mode:'square',calib:125,dia:125,rings:10,
   perRound:10, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
-  redOnly:true, calibratedAt:0,
+  redOnly:true, calibratedAt:0, sound:true, soundVol:0.7,
   serverUrl:''
 }, load(K.cfg,{}));
 /* ★ 검출 설정 자동 갱신 ★
@@ -688,7 +705,8 @@ const ENGINE_VER=4;
   setTimeout(()=>log('검출 방식이 새로워져 관련 설정을 기본값으로 되돌렸습니다 '
     +`(이전: 임계 ${before.red}·최소면적 ${before.minA}·확정프레임 ${before.minF}).`),300);
 })();
-function saveCfg(){ save(K.cfg,CFG); MAXB=CFG.maxBlobs||3; RED_AND=CFG.redOnly!==false; }
+function saveCfg(){ save(K.cfg,CFG); MAXB=CFG.maxBlobs||3; RED_AND=CFG.redOnly!==false;
+  SND.on=CFG.sound!==false; SND.vol=CFG.soundVol||0.7; }
 
 /* 코칭 규칙 임계값은 '링 폭' 단위로 둔다.
    설계기록의 규칙표는 300mm 표적(1링 15mm) 기준으로 쓰였으므로 링 단위로 환산해 두면
@@ -1166,11 +1184,35 @@ async function startCamera(){
   document.getElementById('tcPhoto').disabled=false;
   // 저장된 캘리브레이션 복원
   const q=load('sl.quad',null);
-  if(q&&q.vw===E.vw&&q.vh===E.vh){
-    if(q.fit==='auto'&&q.H){ E.fitMode='auto'; E.H=q.H; E.fitDisc=q.disc||null;
-      if(finalizeTransform()) log('저장된 표적 위치를 복원했습니다(자동). 배경 학습만 하십시오.'); }
-    else if(q.quad){ E.fitMode='manual'; E.quad=q.quad;
-      if(buildTransform()) log('저장된 표적 위치를 복원했습니다. 배경 학습만 하십시오.'); }
+  if(!q){
+    log('저장된 표적 위치가 없습니다 — [표적 자동 맞추기]를 한 번 하십시오.');
+  }else{
+    /* ★ 해상도가 달라도 버리지 않습니다 ★
+       카메라가 1080×1920 으로 열릴 때도 있고 720×1280 으로 열릴 때도 있습니다.
+       예전에는 저장된 값과 크기가 조금이라도 다르면 통째로 버려서, 교사가 보기에는
+       '아무 것도 안 나타나는' 상태가 되었습니다. 화면 비율이 같으면 배율만 맞춰
+       그대로 씁니다. 어긋나면 [표적 자동 맞추기]에서 손보면 됩니다. */
+    const k = (q.vw&&q.vh) ? E.vw/q.vw : 1;
+    const kh = (q.vw&&q.vh) ? E.vh/q.vh : 1;
+    const same = q.vw===E.vw && q.vh===E.vh;
+    const scalable = !same && k>0 && Math.abs(k-kh)/k < 0.02;   // 비율이 같을 때만
+    if(same||scalable){
+      const sc = m => same ? m : [m[0]*k,m[1]*k,m[2]*k, m[3]*k,m[4]*k,m[5]*k, m[6],m[7],m[8]];
+      if(q.fit==='auto'&&q.H){
+        E.fitMode='auto'; E.H=sc(q.H);
+        E.fitDisc=q.disc?Object.assign({},q.disc,same?{}:{cx:q.disc.cx*k,cy:q.disc.cy*k,
+          rmin:(q.disc.rmin||0)*k, rmax:(q.disc.rmax||0)*k,
+          cov:q.disc.cov?{a:q.disc.cov.a*k*k,b:q.disc.cov.b*k*k,c:q.disc.cov.c*k*k}:q.disc.cov}):null;
+        if(finalizeTransform())
+          log('저장된 표적 위치를 복원했습니다(자동)'+(same?'':` · 해상도 차이 ${q.vw}×${q.vh}→${E.vw}×${E.vh} 보정`)+'. 배경 학습만 하십시오.');
+      }else if(q.quad){
+        E.fitMode='manual'; E.quad=same?q.quad:q.quad.map(p=>({x:p.x*k,y:p.y*k}));
+        if(buildTransform())
+          log('저장된 표적 위치를 복원했습니다'+(same?'':` · 해상도 차이 보정`)+'. 배경 학습만 하십시오.');
+      }
+    }else{
+      log(`저장된 표적은 ${q.vw}×${q.vh} 기준인데 지금 카메라는 ${E.vw}×${E.vh} 입니다 — [표적 자동 맞추기]를 다시 하십시오.`);
+    }
   }
   /* 자동(타원) 방식으로 저장된 것은 E.quad 가 비어 있습니다. 예전에는 이걸 보고
      '표적 미지정'으로 판단해 [배경 학습]을 잠갔고, 교사가 멀쩡히 맞아 있는 표적을
@@ -1669,13 +1711,31 @@ function autoCalTick(now){
   ACAL.v.push(Math.max(R.stats.blobRed||0, R.stats.blobLum||0));
   if(now-ACAL.t0<3000) return;
   ACAL.on=false; E.mode='idle';
-  const a=ACAL.v.slice().sort((x,y)=>x-y);
-  const p95=a.length? a[Math.min(a.length-1,Math.floor(a.length*0.95))] : 0;
-  /* 잡음 최댓값의 세 배. 실측에서 진짜 레이저는 잡음의 10배 이상으로 나옵니다. */
-  const th=Math.round(Math.max(45, p95*3));
+  /* ★ 한 번의 우연에 임계값을 맡기지 않습니다 ★
+     3초를 통째로 보면, 그 사이 누가 앞을 지나가거나 형광등이 한 번 깜빡인 것만으로도
+     '잡음 상위 5%'가 크게 부풀고, 그 뒤로는 쏜 발의 절반이 잘립니다.
+     (현장에서 6발 중 2발만 잡히다가 다시 하니 10발 모두 잡힌 것이 이 때문입니다.)
+     그래서 1초짜리 창 셋으로 나눠 각각의 상위 5%를 구하고, 그 **가운데 값**을 씁니다.
+     한 창이 오염돼도 나머지 둘이 결과를 지켜 줍니다. */
+  const pick=arr=>{ const a=arr.slice().sort((x,y)=>x-y);
+    return a.length? a[Math.min(a.length-1,Math.floor(a.length*0.95))] : 0; };
+  const per=Math.max(1,Math.ceil(ACAL.v.length/3));
+  const wins=[];
+  for(let i=0;i<ACAL.v.length;i+=per) wins.push(pick(ACAL.v.slice(i,i+per)));
+  wins.sort((x,y)=>x-y);
+  const p95 = wins.length ? wins[Math.floor(wins.length/2)] : pick(ACAL.v);
+  const spread = wins.length>1 ? (wins[wins.length-1]-wins[0]) : 0;
+  /* 잡음 상위 5%의 **두 배**.
+     세 배로 두었더니 절반 정도만 잡혔습니다(현장 보고). 재현해 보니 흔들림이 조금만
+     있어도 다섯 발 중 한 발까지 떨어졌고, 두 배로 낮추면 다섯 발 모두 잡히면서
+     가짜 점은 그대로 0이었습니다. 붉은빛 판별이 이미 가짜를 막고 있으므로
+     임계값까지 높게 둘 이유가 없습니다. */
+  const th=Math.round(Math.max(45, p95*2));
   CFG.red=th; CFG.lum=th; CFG.calibratedAt=Date.now(); saveCfg();
   badge.textContent='준비 완료';
-  log(`자동 잡음 보정 완료: 잡음 상위 ${p95.toFixed(0)} → 임계값 ${th}`);
+  log(`자동 잡음 보정 완료: 잡음 ${wins.map(w=>w.toFixed(0)).join('/')} → 가운데 ${p95.toFixed(0)} · 임계값 ${th}`);
+  if(spread > Math.max(20, p95*0.6))
+    log('⚠ 초마다 잡음이 크게 달랐습니다(흔들림·조명 깜빡임). 거치를 다시 확인하고 [배경 학습]을 한 번 더 하십시오.');
   if(document.getElementById('tcBody').style.display!=='none') refreshTeacher();
   updReady(); refreshFireState();
 }
@@ -1728,8 +1788,13 @@ function tick(){
          ② 75 (잡음의 7.5배) — 실측상 이 위에서는 어두운 레이저를 놓칩니다.
          검증 중에 누가 실수로 쏘면 그게 '유령'으로 세어져 임계값이 계속 올라가는데,
          ②가 없으면 그 한 번의 실수로 수업 내내 검출이 안 됩니다. */
-      const capR=Math.max(45, Math.round((E.probe.red||9999)*0.7));
-      const capL=Math.max(45, Math.round((E.probe.lum||9999)*0.7));
+      /* ★ 검증이 임계값을 무한정 올리지 못하게 ★
+         검증 중에 누가 실수로 한 발이라도 쏘면 그게 '유령'으로 세어져 임계값이
+         계속 올라가고, 그 뒤로는 진짜 탄착의 절반이 잘립니다.
+         자동 잡음 보정이 이미 그 기기에 맞는 값을 정해 두었으므로,
+         검증은 그 값의 **두 배까지만** 올릴 수 있게 합니다. */
+      const capR=Math.max(45, Math.round((VF.base||CFG.red)*2));
+      const capL=Math.max(45, Math.round((VF.base||CFG.lum)*2));
       if(VF.round>=5 || CFG.red>=capR || CFG.lum>=capL){ endVerify(false); }
       else { VF.round++;
         CFG.red=Math.min(capR,Math.round(CFG.red*1.2));
@@ -1805,7 +1870,13 @@ function track(hits,now){
     if(t.seen&&now-t.start>LIFE){ E.tracks.splice(i,1); continue; }
     if(t.seen||now-t.last<GAP) continue;
     E.tracks.splice(i,1);
-    if(t.frames<CFG.minF){ E.rejF=(E.rejF||0)+1; E.rejFmax=Math.max(E.rejFmax||0,t.frames); continue; }
+    /* ★ 강하게 잡힌 한 프레임은 인정합니다 ★
+       레이저 펄스가 짧으면(아두이노 PULSE_MS 가 작으면) 한 프레임에만 잡힙니다.
+       '2프레임 이상'을 일률적으로 요구하면 그런 발이 절반쯤 사라집니다.
+       대신 **임계값의 2배를 넘는 강한 신호**는 한 프레임이어도 받아들입니다.
+       붉은빛 판별을 이미 통과한 신호이므로 잡음일 가능성은 매우 낮습니다. */
+    const strong = t.peak>=1.6;   // 임계값의 1.6배 (실측: 1.6 이하에서 2프레임 펄스가 1/5→5/5, 가짜는 0 유지)
+    if(t.frames<CFG.minF && !strong){ E.rejF=(E.rejF||0)+1; E.rejFmax=Math.max(E.rejFmax||0,t.frames); continue; }
     if(t.last-t.start>LIFE){ E.rejL=(E.rejL||0)+1; continue; }
     /* 전역 최소 간격 — 사람이 0.4초 안에 두 발을 쏠 수는 없습니다.
        예전에는 '직전 발과 가까운 위치'일 때만 막아서, 잡음이 매 프레임 다른 곳에
@@ -1829,7 +1900,7 @@ function trackVerify(hits,now){
     const t=E.tracks[i];
     if(t.seen||now-t.last<GAP) continue;
     E.tracks.splice(i,1);
-    if(t.frames>=CFG.minF && now-E.lastEmit>=CFG.cool){ E.lastEmit=now; VF.ghosts++; }
+    if((t.frames>=CFG.minF || t.peak>=1.6) && now-E.lastEmit>=CFG.cool){ E.lastEmit=now; VF.ghosts++; }
   }
 }
 function startLoop(){
@@ -1931,7 +2002,11 @@ function renderOverlay(){
   if((E.mode==='run'||E.mode==='probe')&&E.lastHits) for(const b of E.lastHits){
     const _q=toVideo(b.x,b.y), q={x:_q.x*s,y:_q.y*s};
     octx.strokeStyle='#FFD400';octx.lineWidth=1.5;octx.beginPath();octx.arc(q.x,q.y,9,0,7);octx.stroke(); }
-  const marks = TEST.on||TEST.shots.length ? TEST.shots : SES.shots;
+  /* ★ 교사 테스트 탄착은 교사 화면에서만 보여야 합니다 ★
+     예전에는 TEST.shots 가 남아 있기만 하면 학생 화면에서도 그려져서,
+     새 학생이 들어와도 교사가 시험 삼아 쏜 10발이 표적에 그대로 찍혀 있었습니다. */
+  const onTeacher = document.getElementById('scTeacher').classList.contains('on');
+  const marks = (onTeacher && (TEST.on||TEST.shots.length)) ? TEST.shots : SES.shots;
   if(E.H&&marks.length) marks.forEach((sh,i)=>{
     const q=P(applyH(E.H,sh.x,sh.y));
     octx.fillStyle=sh.miss?'#FF8A00':'#E2452F';
@@ -2324,6 +2399,91 @@ function updTestInfo(){
     TEST.shots.slice(-5).map(s=>`${s.no}발 (${s.x.toFixed(1)}, ${s.y.toFixed(1)})mm ${s.miss?'이탈':s.score+'점'} · ${s.frames}프레임`).join('<br>');
 }
 
+/* ★★ 격발 효과음 ★★
+   실제 총성에 가까운 소리를 그 자리에서 합성합니다(외부 파일 없음 — 앱은 파일 하나로
+   유지됩니다). 소리는 세 겹으로 만듭니다.
+     ① 딱 하는 파열음 — 짧은 잡음을 빠르게 감쇠 (약 90ms)
+     ② 몸통 울림      — 60~110Hz 사인파가 아래로 미끄러지며 감쇠 (약 180ms)
+     ③ 잔향           — 넓은 잡음 꼬리 (약 250ms)
+   ※ 아이패드 사파리는 사용자가 화면을 한 번 만지기 전에는 소리를 낼 수 없습니다.
+      그래서 첫 터치 때 소리 장치를 깨워 둡니다. */
+const SND={ctx:null,on:true,vol:0.7,noise:null};
+function sndInit(){
+  if(SND.ctx) return SND.ctx;
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC) return null;
+    SND.ctx=new AC();
+    const sr=SND.ctx.sampleRate, len=Math.floor(sr*0.4);
+    const b=SND.ctx.createBuffer(1,len,sr), d=b.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=Math.random()*2-1;
+    SND.noise=b;
+  }catch(e){ return null; }
+  return SND.ctx;
+}
+function sndUnlock(){
+  const c=sndInit(); if(!c) return;
+  if(c.state==='suspended') c.resume();
+}
+function playShot(){
+  if(!SND.on) return;
+  const c=sndInit(); if(!c||!SND.noise) return;
+  if(c.state==='suspended'){ c.resume(); }
+  const t=c.currentTime, V=SND.vol;
+  const out=c.createGain(); out.gain.value=V; out.connect(c.destination);
+
+  // ① 파열음 — 잡음을 고역통과해 '딱' 하는 성분만
+  const n1=c.createBufferSource(); n1.buffer=SND.noise;
+  const hp=c.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=900;
+  const g1=c.createGain();
+  g1.gain.setValueAtTime(0.0001,t);
+  g1.gain.exponentialRampToValueAtTime(1.0,t+0.004);
+  g1.gain.exponentialRampToValueAtTime(0.0008,t+0.09);
+  n1.connect(hp); hp.connect(g1); g1.connect(out);
+  n1.start(t); n1.stop(t+0.12);
+
+  // ② 몸통 울림 — 낮은 주파수가 아래로 미끄러짐
+  const o=c.createOscillator(); o.type='sine';
+  o.frequency.setValueAtTime(115,t);
+  o.frequency.exponentialRampToValueAtTime(48,t+0.16);
+  const g2=c.createGain();
+  g2.gain.setValueAtTime(0.0001,t);
+  g2.gain.exponentialRampToValueAtTime(0.85,t+0.006);
+  g2.gain.exponentialRampToValueAtTime(0.0008,t+0.19);
+  o.connect(g2); g2.connect(out);
+  o.start(t); o.stop(t+0.22);
+
+  // ③ 잔향 — 넓은 잡음 꼬리
+  const n2=c.createBufferSource(); n2.buffer=SND.noise;
+  const bp=c.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=420; bp.Q.value=0.7;
+  const g3=c.createGain();
+  g3.gain.setValueAtTime(0.0001,t);
+  g3.gain.exponentialRampToValueAtTime(0.32,t+0.02);
+  g3.gain.exponentialRampToValueAtTime(0.0006,t+0.26);
+  n2.connect(bp); bp.connect(g3); g3.connect(out);
+  n2.start(t); n2.stop(t+0.3);
+
+  setTimeout(()=>{ try{out.disconnect();}catch(e){} }, 500);
+}
+/* 회차를 다 마쳤을 때 — 짧은 상승 두 음 */
+function playDone(){
+  if(!SND.on) return;
+  const c=sndInit(); if(!c) return;
+  if(c.state==='suspended') c.resume();
+  const t=c.currentTime;
+  [[0,660],[0.13,880]].forEach(([dt,f])=>{
+    const o=c.createOscillator(), g=c.createGain();
+    o.type='triangle'; o.frequency.value=f;
+    g.gain.setValueAtTime(0.0001,t+dt);
+    g.gain.exponentialRampToValueAtTime(0.35*SND.vol,t+dt+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0005,t+dt+0.16);
+    o.connect(g); g.connect(c.destination);
+    o.start(t+dt); o.stop(t+dt+0.2);
+  });
+}
+document.addEventListener('pointerdown',sndUnlock,{once:true,capture:true});
+document.addEventListener('touchstart',sndUnlock,{once:true,capture:true});
+
 /* ===================== 사격 세션 ===================== */
 const SES={ stu:null, session:0, shots:[], firing:false, startedAt:0,
             coachShownAt:0, coachDwell:0, mismatch:false, saved:false };
@@ -2355,6 +2515,7 @@ function onShot(t){
   const mm=applyH(E.Hinv,vx,vy), r=Math.hypot(mm.x,mm.y), sc=scoreOf(r);
   const rec={x:mm.x,y:mm.y,r,score:sc.i,dec:sc.d,miss:sc.miss,
              frames:t.frames,peak:Math.round(t.peak),ts:Date.now()};
+  playShot();
   if(TEST.on){ rec.no=TEST.shots.length+1; TEST.shots.push(rec);
     const n=TEST.shots.length;
     if(n>=3 && rec.ts-TEST.shots[n-3].ts<1500){
@@ -2451,7 +2612,7 @@ function stopFire(){ SES.firing=false; E.mode='idle'; badge.textContent='정지'
   document.getElementById('btnFire').textContent='사격 시작'; }
 
 function endRound(){
-  stopFire();
+  stopFire(); playDone();
   const m=metrics(SES.shots);
   saveRound(m,{force:true});
   if(SES.stu.group==='E'){ SES.coachShownAt=performance.now(); renderCoach(m); goTab('coach'); }
@@ -2891,6 +3052,9 @@ function msg(t,cls){ const el=document.getElementById('lgMsg');
   el.innerHTML=`<span class="tag ${cls||''}">${t}</span>`; }
 
 function enterStudent(stu,session,mismatch){
+  /* 교사가 시험 삼아 쏜 발이 학생 화면에 남지 않도록 반드시 비웁니다 */
+  if(TEST.on) toggleTest();
+  TEST.shots=[]; diagReset(); E.tracks=[]; E.lastEmit=0;
   SES.stu=stu; SES.session=session; SES.shots=[]; SES.firing=false;
   SES.coachShownAt=0; SES.coachDwell=0; SES.mismatch=mismatch; SES.saved=false;
   document.getElementById('stWho').textContent=stu.nick;
@@ -3174,7 +3338,12 @@ function autoTh(pr){
      즉 임계값이 잡음보다 낮게 잡혀 쏘지 않은 점이 계속 찍혔습니다.
      잡음 크기는 기기·조명·거치 상태에 따라 얼마든지 커지므로, 상한 없이
      **측정값이 정하게** 합니다. */
-  return Math.round(Math.max(45, 0.5*sig, 3.0*nz));
+  /* 자동 잡음 보정(잡음 상위5%의 2배)과 뜻이 맞도록 잡음의 3배를 쓰되,
+     신호의 절반을 넘지 않게 합니다. 예전에는 '신호의 절반'을 하한으로 써서
+     임계값이 필요 이상으로 높아졌고, 다섯 발 중 두세 발이 잘렸습니다. */
+  const byNoise = 3.0*nz;
+  const ceil    = sig>0 ? 0.5*sig : byNoise;
+  return Math.round(Math.max(45, Math.min(byNoise, ceil)));
 }
 function updProbe(){
   const pr=E.probe, bb=bgBrightness();
@@ -3243,9 +3412,10 @@ function updProbe(){
    생기면 임계값을 20%씩 올려 다시 확인하고, 0건이 될 때까지 반복합니다.
    시범 운영에서 유령 탄착이 쏟아진 원인은 임계값이 잡음보다 낮았기 때문인데,
    이 검증을 통과해야만 '사용 가능'으로 표시합니다. */
-const VF={on:false,round:0,ghosts:0,t0:0};
+const VF={on:false,round:0,ghosts:0,t0:0,base:0};
 function startVerify(){
   VF.on=true; VF.round=1; VF.ghosts=0; VF.t0=performance.now();
+  VF.base=Math.max(CFG.red,CFG.lum);
   E.tracks=[]; E.lastEmit=0; E.mode='verify';
   badge.textContent='임계값 검증 중\n쏘지 말고 기다려 주십시오';
   updVerify();
@@ -3310,6 +3480,14 @@ document.getElementById('tcProbeReset').addEventListener('click',()=>{
   log('신호 측정 다시 시작'); updProbe(); });
 document.getElementById('tcPhoto').addEventListener('click',savePhoto);
 document.getElementById('tcRec').addEventListener('click',startRec);
+{ const cb=document.getElementById('tcSound'), sv=document.getElementById('tcSoundVol');
+  const sync=()=>{ SND.on=CFG.sound!==false; SND.vol=CFG.soundVol||0.7;
+    cb.checked=SND.on; sv.value=String(SND.vol); };
+  cb.addEventListener('change',()=>{ CFG.sound=cb.checked; saveCfg(); sync();
+    log('격발 효과음 '+(cb.checked?'켬':'끔')); if(cb.checked) playShot(); });
+  sv.addEventListener('change',()=>{ CFG.soundVol=parseFloat(sv.value)||0.7; saveCfg(); sync(); playShot(); });
+  document.getElementById('tcSoundTest').addEventListener('click',()=>{ sndUnlock(); playShot(); });
+  sync(); window.__syncSound=sync; }
 document.getElementById('tcTest').addEventListener('click',toggleTest);
 document.getElementById('tcTestClear').addEventListener('click',()=>{ TEST.shots=[]; diagReset(); updTestInfo(); });
 document.getElementById('tcSmallDot').addEventListener('click',()=>{
