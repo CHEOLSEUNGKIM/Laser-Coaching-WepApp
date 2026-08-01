@@ -1602,8 +1602,12 @@ function autoCalTick(now){
   ACAL.on=false; E.mode='idle';
   const a=ACAL.v.slice().sort((x,y)=>x-y);
   const p95=a.length? a[Math.min(a.length-1,Math.floor(a.length*0.95))] : 0;
-  /* 잡음 최댓값의 세 배. 실측에서 진짜 레이저는 잡음의 10배 이상으로 나옵니다. */
-  const th=Math.round(Math.max(45, p95*3));
+  /* 잡음 상위 5%의 **두 배**.
+     세 배로 두었더니 절반 정도만 잡혔습니다(현장 보고). 재현해 보니 흔들림이 조금만
+     있어도 다섯 발 중 한 발까지 떨어졌고, 두 배로 낮추면 다섯 발 모두 잡히면서
+     가짜 점은 그대로 0이었습니다. 붉은빛 판별이 이미 가짜를 막고 있으므로
+     임계값까지 높게 둘 이유가 없습니다. */
+  const th=Math.round(Math.max(45, p95*2));
   CFG.red=th; CFG.lum=th; CFG.calibratedAt=Date.now(); saveCfg();
   badge.textContent='준비 완료';
   log(`자동 잡음 보정 완료: 잡음 상위 ${p95.toFixed(0)} → 임계값 ${th}`);
@@ -1659,8 +1663,13 @@ function tick(){
          ② 75 (잡음의 7.5배) — 실측상 이 위에서는 어두운 레이저를 놓칩니다.
          검증 중에 누가 실수로 쏘면 그게 '유령'으로 세어져 임계값이 계속 올라가는데,
          ②가 없으면 그 한 번의 실수로 수업 내내 검출이 안 됩니다. */
-      const capR=Math.max(45, Math.round((E.probe.red||9999)*0.7));
-      const capL=Math.max(45, Math.round((E.probe.lum||9999)*0.7));
+      /* ★ 검증이 임계값을 무한정 올리지 못하게 ★
+         검증 중에 누가 실수로 한 발이라도 쏘면 그게 '유령'으로 세어져 임계값이
+         계속 올라가고, 그 뒤로는 진짜 탄착의 절반이 잘립니다.
+         자동 잡음 보정이 이미 그 기기에 맞는 값을 정해 두었으므로,
+         검증은 그 값의 **두 배까지만** 올릴 수 있게 합니다. */
+      const capR=Math.max(45, Math.round((VF.base||CFG.red)*2));
+      const capL=Math.max(45, Math.round((VF.base||CFG.lum)*2));
       if(VF.round>=5 || CFG.red>=capR || CFG.lum>=capL){ endVerify(false); }
       else { VF.round++;
         CFG.red=Math.min(capR,Math.round(CFG.red*1.2));
@@ -1736,7 +1745,13 @@ function track(hits,now){
     if(t.seen&&now-t.start>LIFE){ E.tracks.splice(i,1); continue; }
     if(t.seen||now-t.last<GAP) continue;
     E.tracks.splice(i,1);
-    if(t.frames<CFG.minF){ E.rejF=(E.rejF||0)+1; E.rejFmax=Math.max(E.rejFmax||0,t.frames); continue; }
+    /* ★ 강하게 잡힌 한 프레임은 인정합니다 ★
+       레이저 펄스가 짧으면(아두이노 PULSE_MS 가 작으면) 한 프레임에만 잡힙니다.
+       '2프레임 이상'을 일률적으로 요구하면 그런 발이 절반쯤 사라집니다.
+       대신 **임계값의 2배를 넘는 강한 신호**는 한 프레임이어도 받아들입니다.
+       붉은빛 판별을 이미 통과한 신호이므로 잡음일 가능성은 매우 낮습니다. */
+    const strong = t.peak>=1.6;   // 임계값의 1.6배 (실측: 1.6 이하에서 2프레임 펄스가 1/5→5/5, 가짜는 0 유지)
+    if(t.frames<CFG.minF && !strong){ E.rejF=(E.rejF||0)+1; E.rejFmax=Math.max(E.rejFmax||0,t.frames); continue; }
     if(t.last-t.start>LIFE){ E.rejL=(E.rejL||0)+1; continue; }
     /* 전역 최소 간격 — 사람이 0.4초 안에 두 발을 쏠 수는 없습니다.
        예전에는 '직전 발과 가까운 위치'일 때만 막아서, 잡음이 매 프레임 다른 곳에
@@ -1760,7 +1775,7 @@ function trackVerify(hits,now){
     const t=E.tracks[i];
     if(t.seen||now-t.last<GAP) continue;
     E.tracks.splice(i,1);
-    if(t.frames>=CFG.minF && now-E.lastEmit>=CFG.cool){ E.lastEmit=now; VF.ghosts++; }
+    if((t.frames>=CFG.minF || t.peak>=1.6) && now-E.lastEmit>=CFG.cool){ E.lastEmit=now; VF.ghosts++; }
   }
 }
 function startLoop(){
@@ -2933,7 +2948,12 @@ function autoTh(pr){
      즉 임계값이 잡음보다 낮게 잡혀 쏘지 않은 점이 계속 찍혔습니다.
      잡음 크기는 기기·조명·거치 상태에 따라 얼마든지 커지므로, 상한 없이
      **측정값이 정하게** 합니다. */
-  return Math.round(Math.max(45, 0.5*sig, 3.0*nz));
+  /* 자동 잡음 보정(잡음 상위5%의 2배)과 뜻이 맞도록 잡음의 3배를 쓰되,
+     신호의 절반을 넘지 않게 합니다. 예전에는 '신호의 절반'을 하한으로 써서
+     임계값이 필요 이상으로 높아졌고, 다섯 발 중 두세 발이 잘렸습니다. */
+  const byNoise = 3.0*nz;
+  const ceil    = sig>0 ? 0.5*sig : byNoise;
+  return Math.round(Math.max(45, Math.min(byNoise, ceil)));
 }
 function updProbe(){
   const pr=E.probe, bb=bgBrightness();
@@ -3002,9 +3022,10 @@ function updProbe(){
    생기면 임계값을 20%씩 올려 다시 확인하고, 0건이 될 때까지 반복합니다.
    시범 운영에서 유령 탄착이 쏟아진 원인은 임계값이 잡음보다 낮았기 때문인데,
    이 검증을 통과해야만 '사용 가능'으로 표시합니다. */
-const VF={on:false,round:0,ghosts:0,t0:0};
+const VF={on:false,round:0,ghosts:0,t0:0,base:0};
 function startVerify(){
   VF.on=true; VF.round=1; VF.ghosts=0; VF.t0=performance.now();
+  VF.base=Math.max(CFG.red,CFG.lum);
   E.tracks=[]; E.lastEmit=0; E.mode='verify';
   badge.textContent='임계값 검증 중\n쏘지 말고 기다려 주십시오';
   updVerify();
