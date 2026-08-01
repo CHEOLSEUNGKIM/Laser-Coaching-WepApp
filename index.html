@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v2.6</title>
+<title>샷라인 SHOTLINE v2.7</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -665,7 +665,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 <script>
 "use strict";
 /* ==========================================================================
-   샷라인 학생·교사 앱 v2.6 (2026-08-01)
+   샷라인 학생·교사 앱 v2.7 (2026-08-01)
    --------------------------------------------------------------------------
    설계 원칙
      · 집단은 '태블릿 설정'이 아니라 '학생 명부'에서 판정한다
@@ -694,7 +694,7 @@ const CFG=Object.assign({
      받은 설정에는 dia 300 이 들어 있었는데, 그러면 점수는 맞지만
      기록되는 거리(탄착군 mm 등)가 2.4배로 부풀려집니다. */
   preset:'lh4',mode:'square',calib:125,dia:125,rings:10,
-  perRound:10, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
+  perRound:10, blackRatio:0.4, red:45,lum:45,minA:4,maxA:2500,minF:2,cool:400,maxBlobs:3,
   redOnly:true, calibratedAt:0, sound:true, soundVol:0.7, sens:'mid',
   serverUrl:''
 }, load(K.cfg,{}));
@@ -704,11 +704,11 @@ const CFG=Object.assign({
    확정프레임 1)이 남아 가짜 탄착이 쏟아졌습니다.
    엔진 판이 바뀌면 **검출 관련 값만** 기본값으로 되돌립니다.
    명부·기록·표적 규격은 건드리지 않습니다. */
-const ENGINE_VER=4;
+const ENGINE_VER=5;
 (function migrateCfg(){
   if(CFG.engine===ENGINE_VER) return;
   const before={red:CFG.red,minA:CFG.minA,minF:CFG.minF};
-  CFG.red=45; CFG.lum=45; CFG.minA=4; CFG.minF=2; CFG.cool=400; CFG.maxBlobs=3;
+  CFG.red=45; CFG.lum=45; CFG.minA=4; CFG.maxA=2500; CFG.minF=2; CFG.cool=400; CFG.maxBlobs=3;
   CFG.redOnly=true; CFG.calibratedAt=0; CFG.engine=ENGINE_VER;
   save(K.cfg,CFG);
   setTimeout(()=>log('검출 방식이 새로워져 관련 설정을 기본값으로 되돌렸습니다 '
@@ -1117,7 +1117,12 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
   { const r=RESID.slice().sort((a,b)=>a-b);
     const med=r.length>=30? r[Math.floor(r.length/2)] : 0;
     const lim=med>0 ? Math.max(14, med*3+6) : 14;
-    if(stats.resid>lim){ stats.flood=true; stats.rej.flood=1; return {blobs:[],stats}; } }
+    if(stats.resid>lim){ stats.flood=true; stats.rej.flood=1; } }
+  /* ★ 흔들린 프레임이라고 통째로 버리지 않습니다 ★
+     현장 진단에서 검증 구간 39프레임이 이 관문에서 버려졌습니다. 태블릿이 조금
+     떨리거나 조명이 한 번 흔들린 프레임에 마침 탄착이 있으면 그 발은 사라집니다.
+     화면이 흔들려도 **붉은빛 판별을 통과한 임계값 3배 이상의 덩어리**를 만들어
+     낼 수는 없으므로, 그런 덩어리는 그대로 인정합니다. (아래에서 걸러 냅니다) */
   if(!any){ stats.rej.none=1; return {blobs:[],stats}; }
 
   const blobs=[];
@@ -1138,18 +1143,33 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
     }
     if(area<minA||area>maxA){ stats.rej.area++; continue; }
     const bw=mxx-mnx+1,bh=mxy-mny+1;
-    if(Math.max(bw,bh)/Math.max(1,Math.min(bw,bh))>4){ stats.rej.shape++; continue; }
-    if(area/(bw*bh)<0.25){ stats.rej.shape++; continue; }
+    /* 격발 순간 손이 움직이면 점이 짧은 자국으로 늘어납니다. 예전 기준(4배·0.25)은
+       그런 진짜 탄착까지 '모양이 이상하다'고 버렸습니다. 인쇄물의 선은 붉은빛
+       판별에서 이미 걸리므로 여기서 엄격할 이유가 없습니다. */
+    if(Math.max(bw,bh)/Math.max(1,Math.min(bw,bh))>6){ stats.rej.shape++; continue; }
+    if(area/(bw*bh)<0.15){ stats.rej.shape++; continue; }
     if(sw<=0){ stats.rej.shape++; continue; }
     blobs.push({x:sx/sw+0.5,y:sy/sw+0.5,area,peak,weight:sw,mR:bmR,mL:bmL});
   }
   blobs.sort((a,b)=>b.weight-a.weight);
+  if(stats.flood){
+    const keep=blobs.filter(b=>b.peak>=3.0).sort((a,b)=>b.peak-a.peak);
+    if(!keep.length){ stats.blobCount=0; return {blobs:[],stats}; }
+    stats.floodKept=keep.length;
+    blobs.length=0; blobs.push(keep[0]);
+  }
   stats.blobRed=0; stats.blobLum=0;
   for(const b of blobs){ if(b.mR>stats.blobRed)stats.blobRed=b.mR; if(b.mL>stats.blobLum)stats.blobLum=b.mL; }
   stats.blobCount=blobs.length;
   /* 덩어리가 여럿이어도 프레임을 통째로 버리지 않고 가장 강한 하나만 남깁니다. */
+  /* ★ 하나만 남길 때는 '큰 것'이 아니라 '강한 것'을 남깁니다 ★
+     정렬 기준이 무게(밝기 합)였습니다. 잡음이 넓게 퍼지면 무게는 크고 세기는
+     약한 덩어리가 만들어지는데, 그것이 작고 강한 레이저 점을 밀어냈습니다.
+     실측(현장 진단): 레이저 세기 1116 대 잡음 111 — 세기로 고르면 뒤집힐 수
+     없습니다. */
   if(blobs.length>MAXB){ stats.noisy=true; stats.rej.many=blobs.length;
-    return {blobs:blobs.slice(0,1),stats}; }
+    const best=blobs.slice().sort((a,b)=>b.peak-a.peak)[0];
+    return {blobs:[best],stats}; }
   return {blobs,stats};
 }
 
@@ -1889,7 +1909,10 @@ function tick(){
   } else if(E.mode==='run'&&E.bg&&E.bg.ready&&E.bg.mR){
     const img=grabROI();
     const R=detect(img,E.bg,E.pw,E.ph,CFG.red,CFG.lum,CFG.minA,CFG.maxA);
-    if(TEST.on){ diagAdd(R); if((E.frames&7)===0) updTestInfo(); }
+    /* 실제 회차에서도 단계별 탈락을 세어 둡니다. '쐈는데 안 잡힌다'는 신고가
+       들어왔을 때 진단 파일만 보면 어느 관문에서 걸렸는지 바로 알 수 있습니다. */
+    diagAdd(R);
+    if(TEST.on && (E.frames&7)===0) updTestInfo();
     if(R.stats.flood){
       if(!E.floodSince) E.floodSince=now;
       else if(now-E.floodSince>1500&&now-E.floodWarn>8000){ E.floodWarn=now;
@@ -3630,6 +3653,9 @@ function endRec(){
     cfg:JSON.parse(JSON.stringify(CFG)), aeLast:E.aeLast||null,
     probe:{noiseRed:E.probe.noiseRed,noiseLum:E.probe.noiseLum,red:E.probe.red,lum:E.probe.lum,
            pxMax:E.probe.pxMax,aeMax:E.probe.aeMax,floodF:E.probe.floodF},
+   rej:{frames:DIAG.frames,cand:DIAG.cand,area:DIAG.area,shape:DIAG.shape,many:DIAG.many,
+        flood:DIAG.flood,none:DIAG.none,rejF:DIAG.rejF,rejFmax:DIAG.rejFmax,rejC:DIAG.rejC,
+        maxMetric:Math.round(DIAG.maxMetric)},
     locked:!!E.locked, ua:navigator.userAgent};
   const bl2=new Blob([JSON.stringify(meta,null,1)],{type:'application/json'});
   const a2=document.createElement('a'); a2.href=URL.createObjectURL(bl2);
