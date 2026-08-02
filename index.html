@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v3.0</title>
+<title>샷라인 SHOTLINE v3.2</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -116,6 +116,36 @@ td.n{font-family:var(--mono);text-align:right}
 #video{display:block;background:#000;width:auto;height:auto;
   max-width:100%;max-height:42vh;pointer-events:none;-webkit-user-drag:none}
 #overlay{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none}
+
+/* ★ 교사 화면에서 미리보기 붙여 두기 ★
+   테스트 사격·신호 측정·원시 보기를 하는 동안에는 미리보기가 화면 맨 위에
+   붙어 따라옵니다. 아래로 스크롤해 단추를 눌러도 영상이 항상 보이므로
+   검출 루프가 멈추지 않고, 교사도 탄착이 찍히는 것을 바로 봅니다. */
+/* 학생 화면과 같은 방식으로, 진짜 요소를 그대로 위로 띄웁니다.
+   단추를 두 벌 만들지 않으므로 한쪽만 갱신되는 사고가 없습니다. */
+body.pinned{overflow:hidden}
+body.pinned #stageHostT{position:fixed;inset:0;z-index:70;background:#000;
+  display:flex;align-items:center;justify-content:center;margin:0}
+body.pinned #stage{max-width:100vw;border-radius:0}
+body.pinned #video{max-height:66vh;max-width:100vw}
+/* 지금 켠 기능의 조작 줄과 안내만 함께 띄웁니다 — 그래야 끌 수 있습니다 */
+body[data-pin] #tcTestRow, body[data-pin] #tcProbeRow, body[data-pin] #tcRawRow{
+  position:static}
+body[data-pin="test"] #tcTestRow,
+body[data-pin="probe"] #tcProbeRow,
+body[data-pin="raw"] #tcRawRow{position:fixed;left:0;right:0;bottom:0;z-index:72;margin:0;
+  padding:10px 12px;background:rgba(0,0,0,.92)}
+body[data-pin="test"] #tcTestRow button,
+body[data-pin="probe"] #tcProbeRow button,
+body[data-pin="raw"] #tcRawRow button{padding:14px 12px;font-size:15px}
+body[data-pin="test"] #tcTestInfo,
+body[data-pin="probe"] #tcProbeBox,
+body[data-pin="raw"] #tcRawInfo{position:fixed;left:0;right:0;bottom:62px;z-index:72;margin:0;
+  padding:9px 13px;color:#fff;background:rgba(0,0,0,.84);max-height:38vh;overflow:auto;
+  font-size:12.5px;line-height:1.6}
+body[data-pin] #tcTestInfo b,body[data-pin] #tcRawInfo b,body[data-pin] #tcProbeBox b{color:#fff}
+body[data-pin="probe"] #tcProbeBox .stats div{background:rgba(255,255,255,.08)}
+body[data-pin="probe"] #tcProbeBox dd{color:#fff}
 
 /* ---------- 사격 중 큰 화면 (학생) ----------
    미리보기가 작으면 학생이 자기가 어디를 쏘고 있는지 볼 수 없습니다.
@@ -462,6 +492,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
       <b>카메라가 보고 있는 화면을 있는 그대로(무손실) 담은 사진</b>과 설정값 파일이 내려받아집니다.
       표적 맞추기 전에도 쓸 수 있습니다. 두 파일을 보내 주시면 원인을 정확히 짚을 수 있습니다.</p>
       <p class="note" id="tcReady"></p>
+      <p class="note" id="tcLane"></p>
 
       <div id="tcFitBox" style="display:none;border:1px solid var(--line);border-radius:9px;padding:10px;margin-top:9px">
         <p class="note" style="margin:0 0 8px"><b>인쇄된 링과 화면의 초록 링이 겹치는지 확인하십시오.</b>
@@ -488,11 +519,11 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
         <p class="note" style="margin:0 0 8px">임계값을 감으로 만지지 마십시오.
         <b>①먼저 3초간 쏘지 않고 잡음을 재고, ②그 뒤에 레이저를 쏩니다.</b>
         두 값을 알아야 그 사이에 임계값을 놓을 수 있습니다.</p>
-        <div class="row">
+        <div class="row" id="tcProbeRow">
           <button class="warn" id="tcProbe" disabled>신호 측정 시작</button>
           <button class="ghost sm" id="tcProbeReset" style="flex:0 1 28%">다시 재기</button>
         </div>
-        <div class="row" style="margin-top:7px">
+        <div class="row" id="tcRawRow" style="margin-top:7px">
           <button class="ghost" id="tcRaw" disabled>카메라가 보는 것 (원시 신호)</button>
         </div>
         <div class="row" style="margin-top:7px">
@@ -517,7 +548,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 
       <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:10px">
         <h3 style="font-size:14px;margin:0 0 6px">테스트 사격</h3>
-        <div class="row">
+        <div class="row" id="tcTestRow">
           <button class="warn" id="tcTest" disabled>테스트 사격</button>
           <button class="ghost sm" id="tcTestClear" style="flex:0 1 28%">지우기</button>
         </div>
@@ -535,6 +566,13 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
               </select></div>
             <div style="flex:1 1 40%"><button class="ghost sm" id="tcSoundTest" style="width:100%;margin-top:18px">소리 들어보기</button></div>
           </div>
+          <div class="row" style="margin-top:7px;gap:6px">
+            <button class="ghost sm" data-cue="low" style="flex:1">0~5점</button>
+            <button class="ghost sm" data-cue="mid" style="flex:1">6~8점</button>
+            <button class="ghost sm" data-cue="high" style="flex:1">9~10점</button>
+          </div>
+          <p class="note" style="margin-top:4px">점수 구간마다 다른 신호음이 총성 뒤에 겹칩니다.
+          <b>9~10점은 두 음이 올라가는 종소리</b>, <b>6~8점은 맑은 한 음</b>, 그 아래는 총성만 납니다.</p>
           <p class="note" style="margin-top:5px">아이패드는 화면을 한 번 만져야 소리가 납니다.
           <b>[소리 들어보기]</b>를 한 번 눌러 두면 수업 내내 잘 납니다.
           체육관에서는 태블릿 음량도 올려 주십시오.</p>
@@ -663,7 +701,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 <script>
 "use strict";
 /* ==========================================================================
-   샷라인 학생·교사 앱 v3.0 (2026-08-02)
+   샷라인 학생·교사 앱 v3.2 (2026-08-02)
    --------------------------------------------------------------------------
    설계 원칙
      · 집단은 '태블릿 설정'이 아니라 '학생 명부'에서 판정한다
@@ -1240,7 +1278,16 @@ const rawCv=document.createElement('canvas'), rawCtx=rawCv.getContext('2d');
 async function startCamera(){
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
     alert('카메라를 쓸 수 없습니다. https 주소로 접속했는지 확인하십시오.'); return; }
+  /* ★ 해상도를 먼저 최대로 요청합니다 ★
+     사로에 거치하면 표적이 멀어져 레이저 점이 작게 찍힙니다. 아이패드 사파리는
+     카메라 광학 확대를 지원하지 않으므로(화면 확대는 화소를 늘려 주지 않습니다)
+     남은 방법은 **원본 해상도를 올리는 것**뿐입니다.
+     3840×2160 이 열리면 같은 거리에서 점의 화소 수가 네 배가 됩니다.
+     처리량은 ROI 상한(17만 화소)이 막아 주므로 계산 부담은 늘지 않습니다.
+     기기가 못 주면 아래 줄로 자동으로 내려갑니다. */
   const tries=[
+    {video:{facingMode:{ideal:'environment'},width:{ideal:3840},height:{ideal:2160},frameRate:{ideal:30}}},
+    {video:{facingMode:{ideal:'environment'},width:{ideal:2560},height:{ideal:1440},frameRate:{ideal:30}}},
     {video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:60}}},
     {video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}},
     {video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}},
@@ -1998,12 +2045,46 @@ function trackVerify(hits,now){
     if((t.frames>=CFG.minF || t.peak>=1.6) && now-E.lastEmit>=CFG.cool){ E.lastEmit=now; VF.ghosts++; }
   }
 }
+/* ★★ 검출 루프가 멈추던 진짜 이유 ★★
+   영상 프레임 콜백(requestVideoFrameCallback)은 **영상이 화면에 실제로 그려질 때만**
+   호출됩니다. 교사 화면에서 [테스트 사격] 단추는 미리보기보다 한참 아래에 있어서,
+   교사가 단추를 누르려고 스크롤하는 순간 미리보기가 화면 밖으로 나갑니다.
+   그러면 콜백이 오지 않고 **검출 루프 전체가 조용히 멈춥니다** — 교사 모드에서
+   한 발도 안 잡히고 학생 모드(전체 화면이라 항상 보임)에서는 다 잡히던 이유입니다.
+
+   두 겹으로 막습니다.
+     ① 미리보기를 화면 위에 붙여 둡니다(아래 pinPreview) — 애초에 안 벗어납니다.
+     ② 그래도 콜백이 끊기면 타이머가 대신 돌립니다.
+   검출 계산 자체는 전혀 바뀌지 않습니다. */
 function startLoop(){
   if(E.running) return; E.running=true;
   const rv=typeof video.requestVideoFrameCallback==='function';
-  const step=()=>{ if(!E.running) return; tick();
-    rv?video.requestVideoFrameCallback(step):requestAnimationFrame(step); };
-  rv?video.requestVideoFrameCallback(step):requestAnimationFrame(step);
+  E.lastTick=performance.now(); E.stall=0;
+  /* ★ 같은 영상 프레임을 두 번 처리하면 안 됩니다 ★
+     보조 방식(화면 갱신 콜백)은 초당 60번 오지만 카메라는 30fps 입니다.
+     그대로 돌리면 '시간 차이'가 0인 프레임이 절반 섞여 검출이 무너집니다.
+     영상 시각(currentTime)이 바뀌었을 때만 처리합니다. */
+  const step=()=>{ if(!E.running) return;
+    E.lastTick=performance.now();
+    const vt=video.currentTime;
+    if(!E.useRaf || vt!==E.lastVT){ E.lastVT=vt; E.tickN=(E.tickN||0)+1; tick(); }
+    (rv&&!E.useRaf)?video.requestVideoFrameCallback(step):requestAnimationFrame(step); };
+  (rv&&!E.useRaf)?video.requestVideoFrameCallback(step):requestAnimationFrame(step);
+  if(E.watch) clearInterval(E.watch);
+  E.watch=setInterval(()=>{
+    if(!E.running) return;
+    const now=performance.now();
+    if(now-(E.lastTick||0) > 300){
+      /* 콜백이 끊겼습니다 — 화면 갱신 콜백으로 갈아탑니다(스크롤과 무관합니다) */
+      E.stall=(E.stall||0)+1;
+      if(!E.useRaf){ E.useRaf=true;
+        log('⚠ 미리보기가 화면 밖에 있어 검출이 멈출 뻔했습니다 — 보조 방식으로 계속합니다.'); }
+      E.lastTick=now;
+      const vt=video.currentTime;
+      if(vt!==E.lastVT){ E.lastVT=vt; E.tickN=(E.tickN||0)+1; tick(); }
+      requestAnimationFrame(step);
+    }
+  }, 120);
 }
 /* ★ 카메라가 보는 것 ★
    임계값·면적·프레임 수 같은 판정을 전부 거치기 전의 '차이 신호'를 그대로 색으로 보여줍니다.
@@ -2476,12 +2557,13 @@ function diagText(){
 }
 
 function toggleTest(){
-  if(TEST.on){ TEST.on=false; E.mode='idle';
+  if(TEST.on){ TEST.on=false; E.mode='idle'; pinPreview(false);
     document.getElementById('tcTest').textContent='테스트 사격';
     document.getElementById('tcTest').className='warn';
     badge.textContent='준비 완료'; updTestInfo(); refreshFireState(); return; }
   if(!E.bg||!E.bg.ready){ alert('먼저 [표적 맞추기]와 [배경 학습]을 하십시오.'); return; }
-  TEST.on=true; TEST.shots=[]; E.tracks=[]; E.mode='run'; diagReset();
+  TEST.on=true; TEST.shots=[]; E.tracks=[]; E.lastEmit=0; E.mode='run'; diagReset();
+  pinPreview('test');
   document.getElementById('tcTest').textContent='테스트 종료';
   document.getElementById('tcTest').className='danger';
   badge.textContent='테스트 사격 중\n기록에 저장되지 않습니다';
@@ -2564,6 +2646,40 @@ function playShot(){
 
   setTimeout(()=>{ try{out.disconnect();}catch(e){} }, 500);
 }
+/* ★ 점수 구간별 신호음 ★
+   총성은 그대로 두고, 그 위에 짧은 '결과음'을 겹칩니다. 총성을 바꾸면 몰입이
+   깨지므로 총성은 건드리지 않습니다.
+     · 0~5점(이탈 포함) — 총성만 (지금까지와 동일)
+     · 6~8점            — 맑은 한 음 (괜찮다)
+     · 9~10점           — 두 음이 올라가는 종소리 (잘했다)
+   격발과 동시에 나되 결과음은 아주 살짝(40ms) 뒤에 얹어 총성을 가리지 않습니다. */
+function playScoreCue(score){
+  if(!SND.on) return;
+  const c=sndInit(); if(!c) return;
+  if(c.state==='suspended') c.resume();
+  const t=c.currentTime+0.04, V=SND.vol;
+  const notes = score>=CFG.rings-1 ? [[0,1175,0.20],[0.11,1568,0.26]]      // 9~10점
+              : score>=CFG.rings-4 ? [[0,988,0.18]]                        // 6~8점
+              : null;                                                       // 0~5점은 총성만
+  if(!notes) return;
+  for(const [dt,f,g0] of notes){
+    const o=c.createOscillator(), g=c.createGain();
+    o.type='triangle'; o.frequency.setValueAtTime(f,t+dt);
+    g.gain.setValueAtTime(0.0001,t+dt);
+    g.gain.exponentialRampToValueAtTime(g0*V,t+dt+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0004,t+dt+0.22);
+    o.connect(g); g.connect(c.destination);
+    o.start(t+dt); o.stop(t+dt+0.26);
+    /* 배음 하나를 아주 작게 얹어 '띵' 하는 금속감을 만듭니다 */
+    const o2=c.createOscillator(), g2=c.createGain();
+    o2.type='sine'; o2.frequency.setValueAtTime(f*2,t+dt);
+    g2.gain.setValueAtTime(0.0001,t+dt);
+    g2.gain.exponentialRampToValueAtTime(g0*V*0.35,t+dt+0.012);
+    g2.gain.exponentialRampToValueAtTime(0.0003,t+dt+0.16);
+    o2.connect(g2); g2.connect(c.destination);
+    o2.start(t+dt); o2.stop(t+dt+0.2);
+  }
+}
 /* 회차를 다 마쳤을 때 — 짧은 상승 두 음 */
 function playDone(){
   if(!SND.on) return;
@@ -2615,6 +2731,7 @@ function onShot(t){
   const rec={x:mm.x,y:mm.y,r,score:sc.i,dec:sc.d,miss:sc.miss,
              frames:t.frames,peak:Math.round(t.peak),ts:Date.now()};
   playShot();
+  playScoreCue(rec.miss?0:rec.score);
   if(TEST.on){ rec.no=TEST.shots.length+1; TEST.shots.push(rec);
     const n=TEST.shots.length;
     if(n>=3 && rec.ts-TEST.shots[n-3].ts<1500){
@@ -2649,6 +2766,12 @@ function fitBigVideo(){
   const k=Math.min(availW/aw, availH/ah);
   v.style.width=Math.floor(aw*k)+'px';
   v.style.height=Math.floor(ah*k)+'px';
+}
+/* 교사 화면에서 검출을 돌리는 동안 미리보기를 붙여 둡니다 */
+function pinPreview(mode){
+  if(mode){ document.body.classList.add('pinned'); document.body.dataset.pin=mode; }
+  else { document.body.classList.remove('pinned'); delete document.body.dataset.pin; }
+  setTimeout(resizeOverlay,60);
 }
 function bigShot(on){
   document.body.classList.toggle('bigshot', !!on);
@@ -3207,6 +3330,7 @@ function msg(t,cls){ const el=document.getElementById('lgMsg');
   el.innerHTML=`<span class="tag ${cls||''}">${t}</span>`; }
 
 function enterStudent(stu,session,mismatch){
+  pinPreview(false);
   /* 교사가 시험 삼아 쏜 발이 학생 화면에 남지 않도록 반드시 비웁니다 */
   if(TEST.on) toggleTest();
   TEST.shots=[]; diagReset(); E.tracks=[]; E.lastEmit=0;
@@ -3595,7 +3719,11 @@ function updVerify(){
   }
 }
 function endVerify(ok){
-  VF.on=false; E.mode='idle'; E.tracks=[];
+  VF.on=false; E.mode='idle'; E.tracks=[]; pinPreview(false);
+  /* 검증까지 끝나면 신호 측정 한 바퀴가 끝난 것입니다 — 단추를 원래대로 돌립니다.
+     (예전에는 '측정 종료'인 채로 남아, 누르면 측정이 다시 시작됐습니다) */
+  { const pb=document.getElementById('tcProbe');
+    if(pb){ pb.textContent='신호 측정 시작'; pb.className='warn'; } }
   const adv=document.getElementById('pvAdvice');
   badge.textContent='준비 완료';
   if(ok){
@@ -3612,14 +3740,14 @@ function endVerify(ok){
 }
 function toggleProbe(){
   const btn=document.getElementById('tcProbe');
-  if(E.mode==='probe'){ E.mode='idle';
+  if(E.mode==='probe'){ E.mode='idle'; pinPreview(false);
     btn.textContent='신호 측정 시작'; btn.className='warn';
     badge.textContent='준비 완료'; E.lastHits=null; return; }
   if(!E.bg||!E.bg.ready){ alert('먼저 [배경 학습]을 하십시오.'); return; }
   ACAL.on=false;                     // 자동 잡음 보정 중이면 중단하고 수동 측정으로
   E.probe={phase:'noise',red:0,lum:0,noiseRed:0,noiseLum:0,chroma:0,nc:0,at:null,frames:0,hits:0,
            t0:performance.now(),noiseFrames:0,nr:[],nl:[]};
-  E.mode='probe';
+  E.mode='probe'; pinPreview('probe');
   btn.textContent='측정 종료'; btn.className='danger';
   document.getElementById('tcProbeBox').style.display='';
   badge.textContent='① 잡음 측정 중 (3초)\n아직 쏘지 마십시오';
@@ -3629,10 +3757,10 @@ function toggleProbe(){
 document.getElementById('tcProbe').addEventListener('click',toggleProbe);
 document.getElementById('tcRaw').addEventListener('click',()=>{
   const btn=document.getElementById('tcRaw');
-  if(E.mode==='raw'){ E.mode='idle'; E.rawOn=false; btn.textContent='카메라가 보는 것 (원시 신호)';
+  if(E.mode==='raw'){ E.mode='idle'; E.rawOn=false; pinPreview(false); btn.textContent='카메라가 보는 것 (원시 신호)';
     btn.className='ghost'; badge.textContent='준비 완료'; return; }
   if(!E.bg||!E.bg.ready){ alert('먼저 [배경 학습]을 하십시오.'); return; }
-  E.mode='raw'; E.rawOn=true;
+  E.mode='raw'; E.rawOn=true; pinPreview('raw');
   btn.textContent='원시 신호 끄기'; btn.className='danger';
   badge.textContent='원시 신호 보기\n쏠 때 빨간 점이 뜨는지 보십시오';
   log('원시 신호 보기 시작');
@@ -3652,6 +3780,12 @@ document.getElementById('tcRec').addEventListener('click',startRec);
     log('격발 효과음 '+(cb.checked?'켬':'끔')); if(cb.checked) playShot(); });
   sv.addEventListener('change',()=>{ CFG.soundVol=parseFloat(sv.value)||0.7; saveCfg(); sync(); playShot(); });
   document.getElementById('tcSoundTest').addEventListener('click',()=>{ sndUnlock(); playShot(); });
+  document.querySelectorAll('button[data-cue]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ sndUnlock();
+      const sc = btn.dataset.cue==='high' ? CFG.rings
+               : btn.dataset.cue==='mid'  ? CFG.rings-3 : 3;
+      playShot(); playScoreCue(sc); });
+  });
   sync(); window.__syncSound=sync; }
 document.getElementById('tcTest').addEventListener('click',toggleTest);
 document.getElementById('tcTestClear').addEventListener('click',()=>{ TEST.shots=[]; diagReset(); updTestInfo(); });
@@ -3738,6 +3872,7 @@ function endRec(){
            chroma:Math.round(E.probe.chroma||0),chromaNoise:Math.round(E.probe.nc||0),
            pxMax:E.probe.pxMax,aeMax:E.probe.aeMax,floodF:E.probe.floodF},
    chromaTh:CFG.chroma, chromaMax:Math.round(DIAG.maxChroma||0),
+   loopStall:E.stall||0, loopRaf:!!E.useRaf, loopTicks:E.tickN||0,
    rej:{frames:DIAG.frames,cand:DIAG.cand,area:DIAG.area,shape:DIAG.shape,many:DIAG.many,
         flood:DIAG.flood,none:DIAG.none,rejF:DIAG.rejF,rejFmax:DIAG.rejFmax,rejC:DIAG.rejC,
         maxMetric:Math.round(DIAG.maxMetric)},
@@ -3751,6 +3886,27 @@ function endRec(){
   if(el) el.innerHTML=`<span class="tag ok">저장 완료</span> ${k}프레임 · 파일 두 개를 보내 주십시오.`;
   badge.textContent='진단 자료 저장 완료';
   log(`진단 자료 저장: ${k}프레임 ${w}×${h}`);
+}
+/* ★ 사로 거치 판정 ★
+   표적이 멀수록 레이저 점의 화소 수가 줄고, 최소 면적을 못 채우면 그 발이
+   사라집니다. 태블릿을 어디에 둘지 정할 때 이 한 줄만 보면 됩니다.
+   (레이저 점 지름은 표적면에서 약 3mm 로 봅니다) */
+function laneVerdict(dotMm){
+  if(!E.H||!E.mmPerPx) return {ok:false,area:0,need:0,level:'',html:''};
+  const k=E.roiScale||1;
+  const dpx=((dotMm||3)/E.mmPerPx)*k;
+  const area=Math.PI*dpx*dpx/4;
+  const need=minAEff();
+  const level = area>=need*3 ? 'ok' : (area>=need ? 'mid' : 'bad');
+  const tag = level==='ok' ? '<span class="tag ok">넉넉함</span>'
+            : level==='mid'? '<span class="tag mid">아슬아슬</span>'
+                           : '<span class="tag bad">부족</span>';
+  const tail = level==='ok' ? ' — 이 자리에 그대로 두셔도 됩니다.'
+             : level==='mid'? ' — 조금 더 가까이 두거나 표적을 크게 인쇄하면 안정적입니다.'
+                            : ' — <b>표적이 너무 멀거나 작습니다.</b> 태블릿을 가까이 두거나 표적을 크게 인쇄하십시오.';
+  return {ok:level!=='bad', area, need, level,
+    html:`${tag} 레이저 점이 <b>약 ${area.toFixed(0)}화소</b>로 찍힙니다 (필요 ${need}화소 이상)${tail}`
+      +`<br><span class="muted">해상도 ${E.vw}×${E.vh} · ${E.mmPerPx.toFixed(2)} mm/px · 처리배율 ${(k*100).toFixed(0)}%</span>`};
 }
 function updReady(){
   const el=document.getElementById('tcReady'); if(!el) return;
@@ -3771,6 +3927,8 @@ function updReady(){
   const bb=document.getElementById('tcBg'); if(bb) bb.disabled=!(E.vw&&E.H);
   updFitUI();
   refreshFireState();
+  const lane=document.getElementById('tcLane');
+  if(lane) lane.innerHTML=laneVerdict().html;
   if(q&&E.quad){
     const rm=ringMm(), dispW=video.getBoundingClientRect().width||1;
     const err=Math.hypot(0.3*E.mmPerPx, Math.max(0.35,0.5*(E.vw/dispW)*FINE_GAIN)*E.mmPerPx);
@@ -3897,11 +4055,12 @@ if(location.protocol!=='https:'&&location.hostname!=='localhost')
    실제 검출 경로(onShot 이후)를 그대로 통과시킵니다. */
 window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,diagCode,
   DRILLS,BASICS,MSG,bigShot,praise,compare,ringMm,goTab,
+  playScoreCue,pinPreview,
   _ae:(v)=>{AE_ON=v;}, get _aeOn(){return AE_ON;},
   _grab:()=>grabROI(),
   _resetT:()=>{ MB.key=''; }, _bp:(v)=>{BPR=v;}, _scan:(f)=>scanTarget(f),
   _detectTh:(img,thR,thL,minA,maxA,thC)=>detect(img,E.bg,E.pw,E.ph,thR,thL,minA,maxA,thC),
-  _bgChroma:(bg,n)=>buildBgChroma(bg,n), _setChroma:(v)=>{CHROMA_TH=v;},
+  _bgChroma:(bg,n)=>buildBgChroma(bg,n), _setChroma:(v)=>{CHROMA_TH=v;}, laneVerdict,
   _detectBg:(img,bg,w,h,thR,thL,minA,maxA,thC)=>detect(img,bg,w,h,thR,thL,minA,maxA,thC),
   _detect:(img,bg,w,h)=>detect(img,bg,w,h,CFG.red,CFG.lum,CFG.minA,CFG.maxA), _minAEff:minAEff,
   get roster(){return ROSTER;}, get rounds(){return ROUNDS;}, get shots(){return SHOTS;},
