@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v2.6</title>
+<title>샷라인 SHOTLINE v2.9</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -299,12 +299,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
   <div class="pad" id="lgPad"></div>
   <div id="lgMsg"></div>
   <button class="big" id="lgEnter" style="margin-top:10px" disabled>입장</button>
-  <div id="lgOtherBox" style="margin-top:10px;display:none">
-    <label class="fl">내 학급을 고르십시오 (보강)</label>
-    <select id="lgOtherCls"></select>
-  </div>
-  <button class="tlink" id="lgOther">다른 반 학생입니다 (보강)</button>
-  <button class="tlink" id="lgTeacher" style="margin-top:0">교사 설정</button>
+  <button class="tlink" id="lgTeacher">교사 설정</button>
 </div></section>
 
 <!-- ==================== 학생 ==================== -->
@@ -351,10 +346,21 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
         <div><dt>탄착군</dt><dd id="cGrp">–<small>mm</small></dd></div>
         <div><dt>편향</dt><dd id="cMpi" style="font-size:15px">–</dd></div>
       </dl>
+      <div class="diag" id="cGood" style="display:none;border-left:3px solid var(--gain)">
+        <span class="t" style="color:var(--gain)">잘한 점</span>
+        <h4 id="cGoodT">–</h4>
+        <p id="cGoodB">–</p>
+      </div>
       <div class="diag">
         <span class="t">AI 진단</span>
         <h4 id="cTitle">–</h4>
         <p id="cBody">–</p>
+      </div>
+      <div class="diag" id="cPrev" style="display:none;border-left:3px solid var(--ink40)">
+        <span class="t" style="color:var(--ink60)">지난 회차와 비교</span>
+        <h4 id="cPrevT">–</h4>
+        <p id="cPrevB">–</p>
+        <dl class="stats" id="cPrevStats" style="margin-top:9px"></dl>
       </div>
       <div class="diag" id="cBasic" style="display:none;border-left:3px solid var(--lane)">
         <span class="t">사격의 기본 <b id="cBasicNo"></b></span>
@@ -517,7 +523,6 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
         </div>
         <p class="note" id="tcTestInfo"></p>
         <div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:9px">
-        <div style="border-top:1px dashed var(--line);margin-top:10px;padding-top:9px">
           <label style="display:flex;align-items:center;gap:8px;font-size:14px">
             <input type="checkbox" id="tcSound" style="width:20px;height:20px">
             <span><b>격발 효과음</b> — 쏠 때 총성이 납니다</span></label>
@@ -657,7 +662,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 <script>
 "use strict";
 /* ==========================================================================
-   샷라인 학생·교사 앱 v2.6 (2026-08-01)
+   샷라인 학생·교사 앱 v2.9 (2026-08-02)
    --------------------------------------------------------------------------
    설계 원칙
      · 집단은 '태블릿 설정'이 아니라 '학생 명부'에서 판정한다
@@ -687,7 +692,7 @@ const CFG=Object.assign({
      기록되는 거리(탄착군 mm 등)가 2.4배로 부풀려집니다. */
   preset:'lh4',mode:'square',calib:125,dia:125,rings:10,
   perRound:10, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
-  redOnly:true, calibratedAt:0, sound:true, soundVol:0.7,
+  redOnly:true, calibratedAt:0, sound:true, soundVol:0.7, missMargin:0.35,
   serverUrl:''
 }, load(K.cfg,{}));
 /* ★ 검출 설정 자동 갱신 ★
@@ -1110,6 +1115,11 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
     const med=r.length>=30? r[Math.floor(r.length/2)] : 0;
     const lim=med>0 ? Math.max(14, med*3+6) : 14;
     if(stats.resid>lim){ stats.flood=true; stats.rej.flood=1; return {blobs:[],stats}; } }
+  /* ★ 흔들린 프레임이라고 통째로 버리지 않습니다 ★
+     현장 진단에서 검증 구간 39프레임이 이 관문에서 버려졌습니다. 태블릿이 조금
+     떨리거나 조명이 한 번 흔들린 프레임에 마침 탄착이 있으면 그 발은 사라집니다.
+     화면이 흔들려도 **붉은빛 판별을 통과한 임계값 3배 이상의 덩어리**를 만들어
+     낼 수는 없으므로, 그런 덩어리는 그대로 인정합니다. (아래에서 걸러 냅니다) */
   if(!any){ stats.rej.none=1; return {blobs:[],stats}; }
 
   const blobs=[];
@@ -1128,8 +1138,17 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA){
       if(y>0&&lab[i-w]===-1){lab[i-w]=1;st[sp++]=i-w;}
       if(y<h-1&&lab[i+w]===-1){lab[i+w]=1;st[sp++]=i+w;}
     }
-    if(area<minA||area>maxA){ stats.rej.area++; continue; }
+    /* ★ 작지만 아주 강한 점은 살립니다 ★
+       현장 진단에서 면적 미달로 버려진 덩어리가 20개였습니다. 레이저가 멀거나
+       초점이 맞아 점이 작게 찍히면 화소 수를 못 채웁니다. 다만 **임계값의 2배를
+       넘는 세기**라면 잡음이 그런 값을 만들 수 없으므로(붉은빛 판별까지 통과한
+       뒤입니다) 2화소까지 인정합니다. 약한 덩어리에는 그대로 엄격합니다. */
+    const minEff = peak>=2.0 ? Math.max(2,minA-2) : minA;
+    if(area<minEff||area>maxA){ stats.rej.area++; continue; }
     const bw=mxx-mnx+1,bh=mxy-mny+1;
+    /* 격발 순간 손이 움직이면 점이 짧은 자국으로 늘어납니다. 예전 기준(4배·0.25)은
+       그런 진짜 탄착까지 '모양이 이상하다'고 버렸습니다. 인쇄물의 선은 붉은빛
+       판별에서 이미 걸리므로 여기서 엄격할 이유가 없습니다. */
     if(Math.max(bw,bh)/Math.max(1,Math.min(bw,bh))>4){ stats.rej.shape++; continue; }
     if(area/(bw*bh)<0.25){ stats.rej.shape++; continue; }
     if(sw<=0){ stats.rej.shape++; continue; }
@@ -1643,6 +1662,15 @@ function finalizeTransform(){
   E.Hinv=invert3(E.H); if(!E.Hinv) return false;
   const pts=E.quad?E.quad.slice():[], R=CFG.dia/2;
   for(let a=0;a<32;a++){ const t=a/32*Math.PI*2; pts.push(applyH(E.H,Math.cos(t)*R,Math.sin(t)*R)); }
+  /* ★ 표적을 벗어난 발도 0점으로 기록하려면 그 바깥까지 봐야 합니다 ★
+     예전에는 표적 테두리에서 7%만 여유를 두고 그 안쪽만 계산했습니다.
+     표적을 크게 벗어난 레이저는 아예 처리 대상이 아니어서 '안 쏜 것'이 되었습니다.
+     이제 링 반지름의 (1+missMargin)배까지 봅니다. 기본 1.35배입니다. */
+  const MG=Math.max(0,Math.min(1.5,CFG.missMargin!=null?CFG.missMargin:0.35));
+  const inner=[];
+  for(let a=0;a<32;a++){ const t=a/32*Math.PI*2; inner.push(applyH(E.H,Math.cos(t)*R,Math.sin(t)*R)); }
+  if(MG>0){ const R2=R*(1+MG);
+    for(let a=0;a<32;a++){ const t=a/32*Math.PI*2; pts.push(applyH(E.H,Math.cos(t)*R2,Math.sin(t)*R2)); } }
   const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
   const pad=Math.max(10,(Math.max(...xs)-Math.min(...xs))*0.07);
   const x0=Math.max(0,Math.floor(Math.min(...xs)-pad)),y0=Math.max(0,Math.floor(Math.min(...ys)-pad));
@@ -1657,12 +1685,26 @@ function finalizeTransform(){
       무게중심을 소수점으로 구하므로 실제 오차는 0.5mm 수준입니다.) */
   const PIXCAP=120000, area=(x1-x0)*(y1-y0);
   E.roiScale = area>PIXCAP ? Math.sqrt(PIXCAP/area) : 1;
+  /* ★ 넓게 보면 그만큼 잘게 줄여야 하고, 그러면 레이저 점의 화소 수도 줄어듭니다 ★
+     최소 면적을 그대로 두면 넓히자마자 검출이 나빠집니다. 표적만 볼 때의 배율을
+     기준으로 삼아, **실제 크기(mm) 기준의 민감도가 같아지도록** 자동 환산합니다. */
+  { const ix=inner.map(p=>p.x), iy=inner.map(p=>p.y);
+    const ipad=Math.max(10,(Math.max(...ix)-Math.min(...ix))*0.07);
+    const iw=Math.min(E.vw,Math.ceil(Math.max(...ix)+ipad))-Math.max(0,Math.floor(Math.min(...ix)-ipad));
+    const ih=Math.min(E.vh,Math.ceil(Math.max(...iy)+ipad))-Math.max(0,Math.floor(Math.min(...iy)-ipad));
+    const ia=Math.max(1,iw*ih);
+    E.refScale = ia>PIXCAP ? Math.sqrt(PIXCAP/ia) : 1; }
   E.pw=Math.max(8,Math.round((x1-x0)*E.roiScale));
   E.ph=Math.max(8,Math.round((y1-y0)*E.roiScale));
   if(E.roiScale<1) log(`처리 해상도를 ${E.pw}×${E.ph}로 줄였습니다 (원본 ${x1-x0}×${y1-y0}).`);
   const ctr=applyH(E.H,0,0),a1=applyH(E.Hinv,ctr.x,ctr.y),b1=applyH(E.Hinv,ctr.x+1,ctr.y);
   E.mmPerPx=Math.hypot(b1.x-a1.x,b1.y-a1.y);
   E.bg=null; return true;
+}
+/* 지금 처리 배율에서 쓸 최소 면적 — 표적만 볼 때와 물리적으로 같은 크기 */
+function minAEff(){
+  const k=(E.roiScale||1)/(E.refScale||1);
+  return Math.max(2, Math.round((CFG.minA||4)*k*k));
 }
 function grabROI(){
   const r=E.roi, w=E.pw||r.w, h=E.ph||r.h;
@@ -1708,14 +1750,13 @@ function beginAutoCal(){
 }
 function autoCalTick(now){
   const img=grabROI();
-  const R=detect(img,E.bg,E.pw,E.ph,25,25,CFG.minA,CFG.maxA);
+  const R=detect(img,E.bg,E.pw,E.ph,25,25,minAEff(),CFG.maxA);
   ACAL.v.push(Math.max(R.stats.blobRed||0, R.stats.blobLum||0));
   if(now-ACAL.t0<3000) return;
   ACAL.on=false; E.mode='idle';
   const a=ACAL.v.slice().sort((x,y)=>x-y);
   const p95=a.length? a[Math.min(a.length-1,Math.floor(a.length*0.95))] : 0;
-  /* 잡음 상위 5%의 **두 배**. 현장에서 이 값으로 "딱 쏜 것만" 잡혔습니다.
-     그 뒤로 1.15배까지 내려 봤지만 25M 네모가 다시 잡혔습니다. 원래대로 둡니다. */
+  /* 잡음 상위 5%의 **두 배**. 현장에서 이 값으로 "딱 쏜 것만" 잡혔습니다. */
   const th=Math.round(Math.max(45, p95*2));
   CFG.red=th; CFG.lum=th; CFG.calibratedAt=Date.now(); saveCfg();
   badge.textContent='준비 완료';
@@ -1759,7 +1800,7 @@ function tick(){
     drawRaw();
   } else if(E.mode==='verify'&&E.bg&&E.bg.ready&&E.bg.mR){
     const img=grabROI();
-    const R=detect(img,E.bg,E.pw,E.ph,CFG.red,CFG.lum,CFG.minA,CFG.maxA);
+    const R=detect(img,E.bg,E.pw,E.ph,CFG.red,CFG.lum,minAEff(),CFG.maxA);
     E.lastHits=R.blobs;
     const before=VF.ghosts;
     trackVerify(R.blobs,now);
@@ -1791,7 +1832,7 @@ function tick(){
     const img=grabROI();
     // 임계값을 아주 낮춰 '무엇이든 보이는가'를 먼저 확인한다
     /* 잡음과 신호를 같은 잣대로 재야 합니다 — 면적 조건을 실제 검출과 똑같이 둡니다 */
-    const R=detect(img,E.bg,E.pw,E.ph,25,25,CFG.minA,CFG.maxA);
+    const R=detect(img,E.bg,E.pw,E.ph,25,25,minAEff(),CFG.maxA);
     const pr=E.probe; pr.frames++;
     if(R.stats.aeMag!=null) pr.aeMax=Math.max(pr.aeMax||0,R.stats.aeMag);
     if(R.stats.flood) pr.floodF=(pr.floodF||0)+1;
@@ -1822,7 +1863,7 @@ function tick(){
     if((pr.frames&3)===0) updProbe();
   } else if(E.mode==='run'&&E.bg&&E.bg.ready&&E.bg.mR){
     const img=grabROI();
-    const R=detect(img,E.bg,E.pw,E.ph,CFG.red,CFG.lum,CFG.minA,CFG.maxA);
+    const R=detect(img,E.bg,E.pw,E.ph,CFG.red,CFG.lum,minAEff(),CFG.maxA);
     /* 실제 회차에서도 단계별 탈락을 세어 둡니다. '쐈는데 안 잡힌다'는 신고가
        들어왔을 때 진단 파일만 보면 어느 관문에서 걸렸는지 바로 알 수 있습니다. */
     diagAdd(R);
@@ -1907,7 +1948,7 @@ function drawRaw(){
   if(rawCv.width!==w||rawCv.height!==h){ rawCv.width=w; rawCv.height=h; }
   const out=rawCtx.createImageData(w,h), o=out.data;
   /* 검출과 똑같은 계산을 거친 값을 그대로 보여줍니다 (정합 필터 + 잡음 대비 환산) */
-  const RR=detect(img,E.bg,w,h,9999,9999,CFG.minA,CFG.maxA);
+  const RR=detect(img,E.bg,w,h,9999,9999,minAEff(),CFG.maxA);
   const ae=RR.stats.ae||{r:0,g:0,b:0};
   const zz=MB.z;
   let mx=0, mxi=-1;
@@ -2629,6 +2670,7 @@ function saveRound(m,opts){
     grp_mm:+m.grp.toFixed(2),mpi_dev_mm:+m.mpiDev.toFixed(2),mpi_clock:m.mpiClock,
     hits_max:m.hits10,miss:SES.shots.filter(s=>s.miss).length,
     coach_shown:0,coach_dwell_ms:0,diag_code:'',diag_variant:0,basic_id:'',
+    praise:'',prev_session:'',d_avg:'',d_grp:'',d_dev:'',
     drill_ids:'',drill_done:0,
     class_mismatch:SES.mismatch?1:0, target_dia:CFG.dia, rings:CFG.rings,
     mm_per_px:+E.mmPerPx.toFixed(4), ts:Date.now()}));
@@ -2771,6 +2813,74 @@ const MSG={
    b:'지금부터는 잘 맞은 발이 왜 잘 맞았는지 아는 것이 중요합니다. 한 발마다 자세·호흡·격발 중 무엇이 좋았는지 말해 보면 그 감각이 오래 갑니다.',
    d:['D19','D8']}]
 };
+/* ★ 잘한 점 ★
+   고칠 것만 말하면 학생은 자기가 무엇을 지켜야 하는지 모릅니다. 이번 회차에서
+   **실제 수치로 확인되는 잘한 점**을 하나 골라 먼저 말해 줍니다. 없는 칭찬을
+   지어내지 않기 위해, 모두 기록에서 계산되는 사실만 씁니다. */
+function praise(m,shots){
+  const rm=ringMm(), grpR=m.grp/rm, devR=m.mpiDev/rm;
+  const hit=shots.filter(s=>!s.miss), miss=shots.length-hit.length;
+  const best=hit.length?hit.reduce((a,b)=>b.score>a.score?b:a):null;
+  const top=hit.filter(s=>s.score>=CFG.rings-1).length;      // 9점 이상
+  const c=[];
+  if(m.hits10>=3) c.push([`만점이 ${m.hits10}발입니다`,
+    `${CFG.rings}점을 ${m.hits10}발 냈습니다. 우연으로 나오기 어려운 숫자입니다. 그때의 호흡과 격발 느낌을 기억해 두십시오.`,90+m.hits10]);
+  if(grpR<TH.grpOk) c.push(['탄착이 한곳에 모였습니다',
+    `가장 먼 두 발 사이가 ${Math.round(m.grp)}mm입니다. 매번 같은 동작을 반복하고 있다는 뜻이며, 이것이 실력의 뼈대입니다.`,80]);
+  if(devR<TH.mpi*0.6) c.push(['조준이 중심을 향하고 있습니다',
+    `평균 탄착점이 중심에서 ${Math.round(m.mpiDev)}mm밖에 벗어나지 않았습니다. 겨냥 자체는 정확합니다.`,70]);
+  if(shots.length>=CFG.perRound&&miss===0) c.push(['한 발도 표적을 벗어나지 않았습니다',
+    `${shots.length}발 모두 표적 안에 넣었습니다. 기본 조준과 자세가 자리를 잡았다는 신호입니다.`,60]);
+  if(top>=Math.ceil(shots.length*0.4)) c.push([`${CFG.rings-1}점 이상이 ${top}발입니다`,
+    `절반 가까이를 안쪽 링에 넣었습니다. 좋은 발이 우연이 아니라는 뜻입니다.`,55]);
+  if(best&&best.score>=CFG.rings-2) c.push([`가장 좋은 발이 ${best.score}점입니다`,
+    `${best.no}번째 발이 중심에서 ${Math.round(best.r)}mm 안에 들어갔습니다. 그 한 발은 제대로 된 것이니, 그때의 느낌을 기준으로 삼으십시오.`,40]);
+  if(!c.length) c.push([`${shots.length}발을 끝까지 쐈습니다`,
+    '결과와 상관없이 회차를 끝까지 마친 것 자체가 다음 회차의 바탕이 됩니다. 오늘 어떤 발이 그나마 나았는지 하나만 기억해 두십시오.',10]);
+  c.sort((a,b)=>b[2]-a[2]);
+  return {title:c[0][0], body:c[0][1]};
+}
+/* ★ 지난 회차와 비교 ★
+   좋아졌으면 무엇이 좋아졌는지, 나빠졌으면 어떻게 나빠졌는지 수치로 말합니다.
+   평균 점수 하나만 보면 '운'에 휘둘리므로 탄착군(일관성)과 편향(조준)도 함께 봅니다. */
+function compare(m,prev){
+  /* 예전 판 백업을 불러오면 일부 항목이 비어 있을 수 있습니다.
+     비교를 건너뛸지언정 화면이 멈춰서는 안 됩니다. */
+  const num=v=>typeof v==='number'&&isFinite(v);
+  if(!prev||!num(prev.avg)||!num(prev.grp_mm)||!num(prev.mpi_dev_mm)) return null;
+  const d={avg:m.avg-prev.avg, grp:m.grp-prev.grp_mm, dev:m.mpiDev-prev.mpi_dev_mm};
+  const rm=ringMm();
+  const near=(x,lim)=>Math.abs(x)<lim;
+  const parts=[];
+  if(!near(d.avg,0.3)) parts.push(`평균 ${d.avg>0?'+':''}${d.avg.toFixed(1)}점`);
+  if(!near(d.grp,rm*0.3)) parts.push(`탄착군 ${d.grp>0?'+':''}${Math.round(d.grp)}mm`);
+  if(!near(d.dev,rm*0.3)) parts.push(`편향 ${d.dev>0?'+':''}${Math.round(d.dev)}mm`);
+  let t,b;
+  const better=(d.avg>=0.3)||(d.grp<=-rm*0.3);
+  const worse =(d.avg<=-0.3)&&(d.grp>=rm*0.3||d.dev>=rm*0.3);
+  if(better&&d.grp<=-rm*0.3&&d.avg>=0.3){
+    t=`${prev.session}회차보다 확실히 좋아졌습니다`;
+    b=`평균이 ${prev.avg.toFixed(1)}점에서 ${m.avg.toFixed(1)}점으로 올랐고, 탄착군도 ${Math.round(prev.grp_mm)}mm에서 ${Math.round(m.grp)}mm로 좁아졌습니다. 점수와 일관성이 함께 오른 것이라 운이 아닙니다. 지금 하는 방식을 그대로 유지하십시오.`;
+  } else if(d.grp<=-rm*0.3&&d.avg<0.3){
+    t='점수는 비슷하지만 흩어짐이 줄었습니다';
+    b=`탄착군이 ${Math.round(prev.grp_mm)}mm에서 ${Math.round(m.grp)}mm로 좁아졌습니다. 동작이 일정해졌다는 뜻입니다. 이 상태에서 조준점만 중심으로 옮기면 점수는 따라 오릅니다.`;
+  } else if(d.avg>=0.3&&d.grp>rm*0.3){
+    t='점수는 올랐지만 흩어짐은 커졌습니다';
+    b=`평균은 ${d.avg.toFixed(1)}점 올랐는데 탄착군은 ${Math.round(prev.grp_mm)}mm에서 ${Math.round(m.grp)}mm로 넓어졌습니다. 잘 맞은 몇 발이 평균을 올린 것이라 다음 회차에 다시 내려갈 수 있습니다. 모든 발을 같게 만드는 쪽에 집중하십시오.`;
+  } else if(worse){
+    const why = d.dev>=rm*0.3 ? `평균 탄착점이 중심에서 ${Math.round(prev.mpi_dev_mm)}mm → ${Math.round(m.mpiDev)}mm로 더 벗어났습니다. 조준이나 자세가 한쪽으로 틀어졌습니다.`
+                              : `탄착군이 ${Math.round(prev.grp_mm)}mm → ${Math.round(m.grp)}mm로 넓어졌습니다. 발마다 동작이 달라지고 있습니다.`;
+    t=`${prev.session}회차보다 내려갔습니다`;
+    b=`평균이 ${prev.avg.toFixed(1)}점에서 ${m.avg.toFixed(1)}점이 되었습니다. ${why} 실력이 줄어든 것이 아니라 대개 피로나 서두름 때문입니다. 이번에는 발수를 줄이더라도 한 발씩 천천히 해 보십시오.`;
+  } else if(worse||d.avg<=-0.3){
+    t='점수는 조금 내려갔지만 형태는 유지되고 있습니다';
+    b=`평균은 ${d.avg.toFixed(1)}점 변했지만 탄착군과 편향은 지난 회차와 비슷합니다. 동작은 그대로이니 크게 바꾸지 말고, 격발 순간에만 조금 더 집중해 보십시오.`;
+  } else {
+    t=`${prev.session}회차와 비슷합니다`;
+    b='큰 변화가 없습니다. 같은 결과가 반복된다는 것은 동작이 안정되었다는 뜻이기도 합니다. 다음 단계로 올라가려면 한 가지만 의식적으로 바꿔 보십시오 — 예를 들어 격발 전 멈춤을 1초 더 길게.';
+  }
+  return {title:t, body:b, delta:d, prev, summary:parts.join(' · ')};
+}
 /* 진단 규칙 자체는 그대로입니다 — 어떤 코드인지만 정합니다 */
 function diagCode(m){
   const rm=ringMm(), devR=m.mpiDev/rm, grpR=m.grp/rm;
@@ -2838,6 +2948,30 @@ function renderCoach(m){
   const mine=ROUNDS.filter(r=>r.code===SES.stu.code&&r.session!==SES.session);
   const seen=mine.filter(r=>r.diag_code===code0).length;
   const d=diagnose(m,{seen:seen, session:SES.session, basics:mine.length});
+  /* 잘한 점 — 고칠 것보다 먼저 보여 줍니다 */
+  const g=praise(m,SES.shots);
+  document.getElementById('cGood').style.display='';
+  document.getElementById('cGoodT').textContent=g.title;
+  document.getElementById('cGoodB').textContent=g.body;
+  /* 지난 회차와 비교 — 바로 앞 회차(재측정 제외) */
+  const prevR=mine.filter(r=>r.session<SES.session).sort((a,b)=>b.session-a.session)[0];
+  const cp=compare(m,prevR);
+  const pv=document.getElementById('cPrev');
+  if(cp){
+    pv.style.display='';
+    document.getElementById('cPrevT').textContent=cp.title;
+    document.getElementById('cPrevB').textContent=cp.body;
+    const sign=(v,inv)=>{ const good=inv?v<0:v>0; return v===0?'':`<span style="color:${good?'var(--gain)':'var(--shot)'}">${v>0?'▲':'▼'}</span>`; };
+    document.getElementById('cPrevStats').innerHTML=
+      `<div><dt>평균</dt><dd style="font-size:16px">${prevR.avg.toFixed(1)}→${m.avg.toFixed(1)} ${sign(+cp.delta.avg.toFixed(1),false)}</dd></div>`+
+      `<div><dt>탄착군</dt><dd style="font-size:16px">${Math.round(prevR.grp_mm)}→${Math.round(m.grp)} ${sign(Math.round(cp.delta.grp),true)}</dd></div>`+
+      `<div><dt>편향</dt><dd style="font-size:16px">${Math.round(prevR.mpi_dev_mm)}→${Math.round(m.mpiDev)} ${sign(Math.round(cp.delta.dev),true)}</dd></div>`;
+  } else {
+    pv.style.display='';
+    document.getElementById('cPrevT').textContent='이번이 첫 기록입니다';
+    document.getElementById('cPrevB').textContent='다음 회차부터 지난 결과와 무엇이 달라졌는지 함께 보여 드립니다. 오늘 수치를 기준으로 삼으십시오.';
+    document.getElementById('cPrevStats').innerHTML='';
+  }
   document.getElementById('cTitle').textContent=d.title;
   document.getElementById('cBody').textContent=d.body;
   const bc=document.getElementById('cBasic');
@@ -2852,8 +2986,12 @@ function renderCoach(m){
     `<li><span class="k">${k}</span><span><b>${DRILLS[k][0]}</b> — ${DRILLS[k][1]}</span></li>`).join('');
   document.getElementById('cDone').checked=false;
   patchRound({coach_shown:1,diag_code:d.code,diag_variant:d.variant,
-              basic_id:d.basic?d.basic.k:'',drill_ids:d.drills.join('|')});
-  log(`코칭 제시: ${d.code}#${d.variant}${d.basic?' + 기본기 '+d.basic.k:''} (${d.drills.join(',')})`);
+              basic_id:d.basic?d.basic.k:'',drill_ids:d.drills.join('|'),
+              praise:g.title, prev_session:prevR?prevR.session:'',
+              d_avg:cp?+cp.delta.avg.toFixed(2):'', d_grp:cp?+cp.delta.grp.toFixed(1):'',
+              d_dev:cp?+cp.delta.dev.toFixed(1):''});
+  log(`코칭 제시: ${d.code}#${d.variant}${d.basic?' + 기본기 '+d.basic.k:''} · 칭찬 "${g.title}"`
+      +(cp?` · 지난 회차 대비 ${cp.summary||'변화 없음'}`:'') );
 }
 function closeCoach(){
   if(SES.coachShownAt){ SES.coachDwell+=performance.now()-SES.coachShownAt; SES.coachShownAt=0;
@@ -2997,43 +3135,17 @@ function refreshLogin(){
   numBuf=''; document.getElementById('lgNum').textContent='–';
   document.getElementById('lgEnter').disabled=true;
   document.getElementById('lgMsg').textContent='';
-  otherCls=''; document.getElementById('lgOtherBox').style.display='none';
 }
-/* ★ 보강(다른 반) 학생 처리 ★
-   번호만으로 학생을 특정하면, 보강 온 2-6반 3번이 2-4반 3번으로 오인됩니다.
-   그러면 데이터가 남의 것으로 저장되고 집단도 뒤바뀝니다.
-   그래서 '다른 반입니다'를 누른 경우에는 학급을 직접 고르게 합니다. */
-let otherCls='';
-document.getElementById('lgOther').addEventListener('click',()=>{
-  const box=document.getElementById('lgOtherBox');
-  const open=box.style.display==='none';
-  box.style.display=open?'':'none';
-  if(open){
-    const cls=Object.keys(ROSTER.classes).sort();
-    document.getElementById('lgOtherCls').innerHTML=cls.map(c=>`<option>${c}</option>`).join('');
-    otherCls=cls[0]||'';
-  } else otherCls='';
-});
-document.getElementById('lgOtherCls').addEventListener('change',ev=>{ otherCls=ev.target.value; });
-
+/* 타 학급 학생이 오는 경우가 없다는 현장 확인에 따라 '보강' 선택을 없앴습니다.
+   고정된 학급의 번호만 받습니다 — 화면이 단순해지고 오입장도 사라집니다. */
 document.getElementById('lgEnter').addEventListener('click',()=>{
   const lk=lockState();
   if(!lk){ msg('교사가 수업을 먼저 설정해야 합니다.','bad'); return; }
   const num=parseInt(numBuf,10);
-  const useCls = otherCls || lk.cls;
-  let stu=lookupStudent(useCls,num);
-  let mismatch = useCls!==lk.cls;
-  if(!stu&&!otherCls){
-    // 고정 학급에 없는 번호 → 다른 학급에서 유일하게 찾히면 보강으로 간주
-    const cands=findAnywhere(num);
-    if(cands.length===1){ stu=lookupStudent(cands[0].cls,num); mismatch=true; }
-    else if(cands.length>1){
-      msg('여러 학급에 같은 번호가 있습니다. \'다른 반 학생입니다\'를 눌러 학급을 고르십시오.','mid'); return; }
-    else { msg('명부에 없는 번호입니다.','bad'); return; }
-  }
-  if(!stu){ msg(`${useCls}에 ${num}번이 없습니다.`,'bad'); return; }
+  const stu=lookupStudent(lk.cls,num);
+  if(!stu){ msg(`${lk.cls} 명부에 ${num}번이 없습니다.`,'bad'); return; }
   if(!stu.group){ msg('집단이 배정되지 않은 학생입니다. 교사에게 알려 주십시오.','bad'); return; }
-  enterStudent(stu,lk.session,mismatch);
+  enterStudent(stu,lk.session,false);
 });
 function msg(t,cls){ const el=document.getElementById('lgMsg');
   el.innerHTML=`<span class="tag ${cls||''}">${t}</span>`; }
@@ -3045,14 +3157,12 @@ function enterStudent(stu,session,mismatch){
   SES.stu=stu; SES.session=session; SES.shots=[]; SES.firing=false;
   SES.coachShownAt=0; SES.coachDwell=0; SES.mismatch=mismatch; SES.saved=false;
   document.getElementById('stWho').textContent=stu.nick;
-  document.getElementById('stMeta').textContent=`${stu.cls} · ${stu.num}번 · ${session}회차`
-    +(mismatch?' · 보강':'');
+  document.getElementById('stMeta').textContent=`${stu.cls} · ${stu.num}번 · ${session}회차`;
   document.getElementById('stProg').textContent=`0/${CFG.perRound}`;
   buildTabs();
   document.getElementById('btnFire').textContent='사격 시작';
   refreshFireState();
   updShootUI(); goTab('shoot'); showScreen('scStudent');
-  if(mismatch) log(`⚠ ${stu.cls} ${stu.num}번이 ${lockState().cls} 수업에서 입장 (보강) — class_mismatch 기록`);
   log(`${stu.nick} 입장 · ${stu.group==='E'?'실험':'비교'}집단`);
   touch();
 }
@@ -3660,7 +3770,8 @@ document.getElementById('tcCsvShot').addEventListener('click',()=>{
 document.getElementById('tcCsvRound').addEventListener('click',()=>{
   dl(`shotline_rounds_${stamp()}.csv`, toCsv(ROUNDS,
     ['code','cls','num','group','session','n','attempt','incomplete','avg','dec','grp_mm','mpi_dev_mm','mpi_clock','hits_max','miss',
-     'coach_shown','coach_dwell_ms','diag_code','diag_variant','basic_id','drill_ids','drill_done','class_mismatch',
+     'coach_shown','coach_dwell_ms','diag_code','diag_variant','basic_id','praise',
+     'prev_session','d_avg','d_grp','d_dev','drill_ids','drill_done','class_mismatch',
      'target_dia','rings','mm_per_px','ts']));
   log('회차 CSV 저장');
 });
@@ -3714,12 +3825,12 @@ if(location.protocol!=='https:'&&location.hostname!=='localhost')
    _testSetup/_testShot 은 카메라 없이 사격 흐름(채점·저장·코칭)을 검증하기 위한 것으로,
    실제 검출 경로(onShot 이후)를 그대로 통과시킵니다. */
 window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,diagCode,
-  DRILLS,BASICS,MSG,bigShot,ringMm,goTab,
+  DRILLS,BASICS,MSG,bigShot,praise,compare,ringMm,goTab,
   _ae:(v)=>{AE_ON=v;}, get _aeOn(){return AE_ON;},
   _grab:()=>grabROI(),
   _resetT:()=>{ MB.key=''; }, _bp:(v)=>{BPR=v;}, _scan:(f)=>scanTarget(f),
   _detectTh:(img,thR,thL,minA,maxA)=>detect(img,E.bg,E.pw,E.ph,thR,thL,minA,maxA),
-  _detect:(img,bg,w,h)=>detect(img,bg,w,h,CFG.red,CFG.lum,CFG.minA,CFG.maxA),
+  _detect:(img,bg,w,h)=>detect(img,bg,w,h,CFG.red,CFG.lum,CFG.minA,CFG.maxA), _minAEff:minAEff,
   get roster(){return ROSTER;}, get rounds(){return ROUNDS;}, get shots(){return SHOTS;},
   _testSetup(){
     E.vw=1920; E.vh=1080;
