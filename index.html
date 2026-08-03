@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v3.3</title>
+<title>샷라인 SHOTLINE v3.5</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -462,6 +462,17 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
   </div>
 
   <div id="tcBody" style="display:none">
+    <div class="card" id="tcSaveCard">
+      <h2>기록 저장</h2>
+      <p class="note" id="tcSaveState" style="margin-top:0"></p>
+      <div class="row" style="margin-top:9px">
+        <button id="tcSaveAll">수업 끝 저장 (백업 + CSV 2개)</button>
+      </div>
+      <p class="note" style="margin-top:6px">기록은 이 태블릿 안에만 있습니다.
+      <b>아이패드는 7일 동안 앱을 열지 않으면 저장 데이터를 지웁니다.</b>
+      수업이 끝나면 이 단추 하나만 눌러 주십시오 — 파일 세 개가 차례로 내려받아집니다.</p>
+    </div>
+
     <div class="card">
       <h2>이번 수업</h2>
       <div class="row">
@@ -713,7 +724,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 <script>
 "use strict";
 /* ==========================================================================
-   샷라인 학생·교사 앱 v3.3 (2026-08-02)
+   샷라인 학생·교사 앱 v3.5 (2026-08-03)
    --------------------------------------------------------------------------
    설계 원칙
      · 집단은 '태블릿 설정'이 아니라 '학생 명부'에서 판정한다
@@ -724,7 +735,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
    ========================================================================== */
 
 /* ===================== 저장 ===================== */
-const K={roster:'sl.roster',lock:'sl.lock',cfg:'sl.cfg',shots:'sl.shots',rounds:'sl.rounds',pin:'sl.pin'};
+const K={roster:'sl.roster',lock:'sl.lock',cfg:'sl.cfg',shots:'sl.shots',rounds:'sl.rounds',pin:'sl.pin',saved:'sl.saved'};
 function load(k,d){ try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;} }
 function save(k,v){ try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(e){
   log('⚠ 저장 실패: '+e.message+' — 저장공간이 찼을 수 있습니다. CSV로 내보낸 뒤 정리하십시오.');return false;} }
@@ -2566,7 +2577,7 @@ function diagText(){
   if(d.shape) rows.push(['모양이 점 같지 않음', d.shape, '반사·번짐']);
   if(d.rejF) rows.push(['프레임 수 부족', d.rejF, `${d.rejFmax}프레임만 잡힘 · 확정 프레임(${CFG.minF})을 1로 내리거나 펄스를 늘리십시오`]);
   if(d.rejC) rows.push(['재격발 대기에 걸림', d.rejC, `${CFG.cool}ms 이내 재검출`]);
-  if(d.rejD) rows.push(['같은 발 중복으로 제외', d.rejD, '같은 자리에 0.7초 안에 다시 잡힘 — 한 발이 쪼개진 것']);
+  if(d.rejD) rows.push(['같은 발 중복으로 제외', d.rejD, '거의 같은 자리(3mm 이내)에 2.5초 안에 다시 잡힘 — 한 발이 쪼개진 것']);
   if(!rows.length) return `<span class="tag ok">모두 통과</span> 후보 ${d.cand}개 · 최대 신호 ${d.maxMetric.toFixed(0)}`
     +` · 붉은 정도 ${Math.round(d.maxChroma||0)}/${CFG.chroma}`;
   return `<b>단계별 탈락 (${d.frames}프레임, 최대 신호 ${d.maxMetric.toFixed(0)})</b><br>`
@@ -2748,16 +2759,22 @@ function onShot(t){
   /* ★ 같은 발이 두 번 기록되는 것 막기 ★
      레이저 펄스 도중 한두 프레임이 임계값 아래로 떨어지면 추적이 끊기고,
      다시 잡히면서 같은 자리에 두 발로 기록됩니다(현장 보고).
-     쪼개진 조각은 0.3초 안에 거의 같은 자리에서 다시 잡힙니다. 반대로 학생이
-     0.7초 안에 같은 자리(8mm 이내)에 두 발을 넣을 수는 없으므로, 그런 경우는
-     한 발이 쪼개진 것으로 보고 뒤엣것을 버립니다.
+     ★ 판별 기준은 '시간'이 아니라 '거리'입니다 ★
+     쪼개진 조각은 같은 물리적 점이므로 위치 오차(0.2mm 수준)만큼만 떨어집니다.
+     반면 사람이 같은 자리를 다시 맞히는 정밀도는 그보다 한 자릿수 큽니다.
+     실제 수업 자료(1학급 65쌍)가 이를 그대로 보여 줍니다 —
+       · 중복으로 의심되는 쌍   0.84mm  (단 1건)
+       · 가장 촘촘한 실제 두 발 3.72mm
+       · 연속 두 발 거리 중앙값  35.4mm
+     3mm 로 자르면 중복만 걸러지고 실제 발은 하나도 건드리지 않습니다
+     (양쪽으로 3.6배·4.4배 여유). 시간 창은 2.5초로 넉넉히 둡니다.
      표적면의 mm 로 판단하므로 거치 거리·해상도와 무관합니다. */
   const nowMs=Date.now();
   /* 억제된 것까지 포함해 검출이 얼마나 촘촘했는지 남깁니다 — 한자리에 잡음이
      몰리면 기록은 한 발뿐이어도 '잡음 폭주'라는 사실은 알려야 하기 때문입니다. */
   E.hitLog=(E.hitLog||[]); E.hitLog.push(nowMs); if(E.hitLog.length>10) E.hitLog.shift();
-  if(!E.dupOff && E.lastRec && nowMs-E.lastRec.ts<700 &&
-     Math.hypot(mm.x-E.lastRec.x, mm.y-E.lastRec.y) < 8){
+  if(!E.dupOff && E.lastRec && nowMs-E.lastRec.ts<2500 &&
+     Math.hypot(mm.x-E.lastRec.x, mm.y-E.lastRec.y) < 3){
     E.rejD=(E.rejD||0)+1; E.lastRec.ts=nowMs;
     log(`같은 자리 재검출 — 한 발로 봅니다 (${mm.x.toFixed(0)}, ${mm.y.toFixed(0)})mm`);
     if(SES.firing) burstGuard(nowMs);
@@ -2906,6 +2923,7 @@ function saveRound(m,opts){
     class_mismatch:SES.mismatch?1:0, target_dia:CFG.dia, rings:CFG.rings,
     mm_per_px:+E.mmPerPx.toFixed(4), ts:Date.now()}));
   save(K.shots,SHOTS); save(K.rounds,ROUNDS); refreshLocks();
+  if(document.getElementById('tcSaveState')) updSaveBar();
   log(`${SES.stu.nick} ${SES.session}회차 저장 · 평균 ${m.avg.toFixed(1)}점`);
 }
 function patchRound(patch){
@@ -3451,7 +3469,49 @@ document.getElementById('tcPinChange').addEventListener('click',()=>{
 });
 document.getElementById('tcBack').addEventListener('click',()=>{ refreshLogin(); showScreen('scLogin'); });
 
+/* ★ 기록 유실 방지 ★
+   회차 기록은 브라우저 저장공간에만 있습니다. 아이패드 사파리는 7일 동안 방문이
+   없으면 그 저장공간을 지웁니다(주 1회 수업이면 정확히 그 경계선입니다).
+   한 번 지워지면 되돌릴 방법이 없으므로, '아직 안 내보낸 회차가 몇 건인지'를
+   교사 화면 맨 위에 늘 보이게 하고, 잊기 쉬운 순간마다 다시 물어봅니다. */
+function savedAt(){ const v=load(K.saved,null); return (v&&v.at)||0; }
+function unsavedCount(){ const at=savedAt(); return ROUNDS.filter(r=>(r.ts||0)>at).length; }
+function markSaved(){ save(K.saved,{at:Date.now(),n:ROUNDS.length}); updSaveBar(); }
+function fmtWhen(ms){
+  if(!ms) return '없음';
+  const d=new Date(ms), p=n=>String(n).padStart(2,'0');
+  return `${d.getMonth()+1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function updSaveBar(){
+  const el=document.getElementById('tcSaveState'); if(!el) return;
+  const n=unsavedCount(), at=savedAt();
+  el.innerHTML = n===0
+    ? `<span class="tag ok">모두 저장됨</span> 마지막 저장 <b>${fmtWhen(at)}</b> · 회차 ${ROUNDS.length}건`
+    : `<span class="tag bad">미저장 ${n}건</span> 마지막 저장 <b>${fmtWhen(at)}</b> — `
+      +`<b>지금 저장하지 않으면 잃을 수 있습니다.</b>`;
+  const b=document.getElementById('tcSaveAll');
+  if(b){ b.className = n===0 ? 'ghost' : ''; }
+  const c=document.getElementById('tcSaveCard');
+  if(c) c.style.borderColor = n===0 ? 'var(--line)' : 'var(--shot)';
+}
+/* 세 파일을 한 번에 — 사파리는 연속 내려받기를 조금 띄워야 안전합니다 */
+function exportAll(){
+  const t=stamp();
+  const b=new Blob([JSON.stringify({roster:ROSTER,rounds:ROUNDS,shots:SHOTS,cfg:CFG},null,1)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+  a.download=`shotline_backup_${t}.json`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  setTimeout(()=>dl(`shotline_rounds_${t}.csv`, toCsv(ROUNDS,ROUND_COLS)), 800);
+  setTimeout(()=>dl(`shotline_shots_${t}.csv`, toCsv(SHOTS,SHOT_COLS)), 1600);
+  setTimeout(()=>{ markSaved();
+    const el=document.getElementById('tcSaveState');
+    if(el) el.innerHTML='<span class="tag ok">저장 완료</span> 백업 1개 · CSV 2개를 내려받았습니다. '
+      +'<b>파일 앱에서 확인하고 클라우드나 컴퓨터로 옮겨 두십시오.</b>';
+  }, 2200);
+  log(`수업 끝 저장: 회차 ${ROUNDS.length}건 · 탄착 ${SHOTS.length}행`);
+}
 function refreshTeacher(){
+  updSaveBar();
   // 학급/회차 선택
   const cls=Object.keys(ROSTER.classes).sort();
   const lk=lockState();
@@ -3470,7 +3530,16 @@ function refreshTeacher(){
     const doneMap={};
     ROUNDS.filter(r=>r.cls===lk.cls&&r.session===lk.session).forEach(r=>doneMap[r.num]=r);
     const done=list.filter(st=>doneMap[st.num]).length;
-    pg.innerHTML=`<p class="note" style="margin:0 0 8px"><b>${lk.cls} · ${lk.session}회차</b> — `+
+    const allDone = list.length>0 && done===list.length;
+    const un=unsavedCount();
+    pg.innerHTML=(allDone
+        ? `<p class="note" style="margin:0 0 8px;padding:9px 11px;border-radius:8px;`
+          +`background:${un?'#FCE9E6':'#E6F5F0'};border:1px solid ${un?'#F0B3A8':'#9BD8C5'}">`
+          +`<b>${lk.cls} ${lk.session}회차 전원 완료</b>`
+          +(un?` — 아직 <b>${un}건</b>을 내보내지 않았습니다. 위의 <b>[수업 끝 저장]</b>을 눌러 주십시오.`
+              :' — 기록도 모두 저장되어 있습니다.')+`</p>`
+        : '')+
+      `<p class="note" style="margin:0 0 8px"><b>${lk.cls} · ${lk.session}회차</b> — `+
       `완료 <b>${done}/${list.length}</b>명</p>`+
       `<table><thead><tr><th>번호</th><th>이름</th><th class="n">발수</th><th class="n">평균</th><th>상태</th></tr></thead><tbody>`+
       list.map(st=>{ const r=doneMap[st.num];
@@ -3553,6 +3622,17 @@ document.getElementById('tcLock').addEventListener('click',()=>{
   const c=document.getElementById('tcClass').value;
   if(!c){ alert('명부를 먼저 저장하십시오.'); return; }
   if(!ROSTER.classes[c].group){ alert(`${c}의 집단이 지정되지 않았습니다.\n[집단 배정]에서 먼저 지정하십시오.`); return; }
+  /* ★ 수업을 바꾸는 순간이 가장 잊기 쉬운 지점입니다 ★
+     앞 학급 기록을 내보내지 않은 채 다음 수업으로 넘어가면, 그대로 잊힌 뒤
+     저장공간이 정리될 때 함께 사라집니다. 여기서 한 번 잡아 줍니다. */
+  {
+    const un=unsavedCount(), lk=lockState();
+    if(un>0 && lk && lk.cls!==c){
+      if(confirm(`아직 내보내지 않은 회차가 ${un}건 있습니다.\n(${lk.cls} ${lk.session}회차 등)\n\n지금 저장하시겠습니까?\n\n[확인] 파일 3개를 내려받고 수업을 바꿉니다\n[취소] 저장하지 않고 그냥 바꿉니다`)){
+        exportAll();
+      }
+    }
+  }
   save(K.lock,{cls:c,session:parseInt(document.getElementById('tcSession').value,10),at:Date.now()});
   log(`수업 고정: ${c} · ${document.getElementById('tcSession').value}회차`);
   refreshTeacher();
@@ -4027,24 +4107,23 @@ function toCsv(rows,cols){
   }).join(',')).join('\n');
 }
 const stamp=()=>new Date().toISOString().slice(0,19).replace(/[:T-]/g,'');
-document.getElementById('tcCsvShot').addEventListener('click',()=>{
-  dl(`shotline_shots_${stamp()}.csv`, toCsv(SHOTS,
-    ['code','cls','num','group','session','shot_no','x_mm','y_mm','r_mm','score','dec','is_miss','frames','peak','ts']));
-  log('탄착 CSV 저장');
-});
-document.getElementById('tcCsvRound').addEventListener('click',()=>{
-  dl(`shotline_rounds_${stamp()}.csv`, toCsv(ROUNDS,
-    ['code','cls','num','group','session','n','attempt','incomplete','avg','dec','grp_mm','mpi_dev_mm','mpi_clock','hits_max','miss',
+const SHOT_COLS=['code','cls','num','group','session','shot_no','x_mm','y_mm','r_mm','score','dec','is_miss','frames','peak','ts'];
+const ROUND_COLS=['code','cls','num','group','session','n','attempt','incomplete','avg','dec','grp_mm','mpi_dev_mm','mpi_clock','hits_max','miss',
      'coach_shown','coach_dwell_ms','diag_code','diag_variant','basic_id','praise',
      'prev_session','d_avg','d_grp','d_dev','drill_ids','drill_done','class_mismatch',
-     'target_dia','rings','mm_per_px','ts']));
-  log('회차 CSV 저장');
+     'target_dia','rings','mm_per_px','ts'];
+document.getElementById('tcCsvShot').addEventListener('click',()=>{
+  dl(`shotline_shots_${stamp()}.csv`, toCsv(SHOTS,SHOT_COLS)); markSaved(); log('탄착 CSV 저장');
 });
+document.getElementById('tcCsvRound').addEventListener('click',()=>{
+  dl(`shotline_rounds_${stamp()}.csv`, toCsv(ROUNDS,ROUND_COLS)); markSaved(); log('회차 CSV 저장');
+});
+document.getElementById('tcSaveAll').addEventListener('click',exportAll);
 document.getElementById('tcBackup').addEventListener('click',()=>{
   const b=new Blob([JSON.stringify({roster:ROSTER,rounds:ROUNDS,shots:SHOTS,cfg:CFG},null,1)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(b);
   a.download=`shotline_backup_${stamp()}.json`; a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),3000); log('백업 저장');
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000); markSaved(); log('백업 저장');
 });
 /* 태블릿이 여러 대면 학생의 회차 기록이 흩어집니다.
    백업을 불러와 합치면 기록·사전사후 비교가 온전해집니다. (같은 학생·회차는 새 쪽을 채택) */
@@ -4078,7 +4157,7 @@ document.getElementById('tcWipe').addEventListener('click',()=>{
   if(!confirm('탄착·회차 데이터를 모두 삭제합니다.\nCSV를 먼저 내려받으셨습니까?')) return;
   if(!confirm('되돌릴 수 없습니다. 정말 삭제하시겠습니까?')) return;
   SHOTS=[];ROUNDS=[]; save(K.shots,SHOTS); save(K.rounds,ROUNDS);
-  log('데이터 전체 삭제'); refreshTeacher();
+  markSaved(); log('데이터 전체 삭제'); refreshTeacher();
 });
 
 /* ===================== 시작 ===================== */
@@ -4109,6 +4188,7 @@ window.__SL={SES,E,CFG,lookupStudent,enterStudent,metrics,diagnose,diagCode,
     updReady(); refreshFireState();
     return {mmPerPx:E.mmPerPx, roi:E.roi};
   },
+  unsavedCount, markSaved, exportAll, refreshTeacher, updSaveBar,
   _guard(on){ E.guardOff=!on; return !E.guardOff; },
   _dup(on){ E.dupOff=!on; return !E.dupOff; },
   _testShot(xmm,ymm){
