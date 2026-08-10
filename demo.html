@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>샷라인 SHOTLINE — 결과 화면 체험본</title>
+<style>
+/* ==========================================================================
+   샷라인 결과 화면 체험본 — 앱 원본(v3.6)의 CSS를 그대로 씁니다
+   ========================================================================== */
+:root{
+  --ink:#12161D; --ink60:#5A6270; --ink40:#8C93A0;
+  --bg:#EDEFF2; --card:#FFFFFF; --line:#D6DAE0;
+  --lane:#123D6B; --lane-soft:#DCE6F1;
+  --shot:#E2452F; --gain:#17A67C; --warn:#C77700;
+  --mono:ui-monospace,'SF Mono',Menlo,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  font-size:15px;line-height:1.5;
+}
+.wrap{max-width:900px;margin:0 auto;padding:12px}
+
+h1{font-size:20px;margin:0 0 2px;letter-spacing:-.02em}
+h2{font-size:13px;margin:0 0 8px;color:var(--ink60);font-family:var(--mono);
+   text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+h3{font-size:15px;margin:0 0 6px}
+.sub{font-size:12px;color:var(--ink60);font-family:var(--mono);margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+.note{font-size:12.5px;color:var(--ink60);line-height:1.65;margin:8px 0 0}
+.note b{color:var(--ink)}
+.muted{color:var(--ink40)}
+
+button{font-family:inherit;font-size:15px;font-weight:600;border:0;border-radius:9px;
+  padding:13px 16px;cursor:pointer;background:var(--lane);color:#fff}
+button.ghost{background:#E3E8EE;color:var(--lane)}
+button.sm{padding:8px 11px;font-size:13px;border-radius:7px}
+button:active{opacity:.75}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1 1 auto}
+
+select{font-family:inherit;font-size:15px;padding:10px;border:1px solid var(--line);
+  border-radius:8px;width:100%;background:#fff;color:var(--ink)}
+label.fl{display:block;font-size:12.5px;color:var(--ink60);margin:10px 0 4px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:left}
+th{font-family:var(--mono);font-size:9.5px;color:var(--ink40);text-transform:uppercase;font-weight:600}
+td.n{font-family:var(--mono);text-align:right}
+td.c{text-align:center;font-size:15px}
+.tag{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:99px;border:1px solid var(--line)}
+.tag.e{background:rgba(23,166,124,.1);border-color:#9BD8C5;color:#0F7A5B}
+.tag.c{background:var(--bg)}
+.tag.ok{background:#E6F5F0;border-color:#9BD8C5;color:#0F7A5B}
+.tag.bad{background:#FCE9E6;border-color:#F0B3A8;color:#B02D18}
+.tag.mid{background:#FBF0DC;border-color:#E5C88A;color:#8A5A00}
+
+/* ---------- 학생 헤더/탭 ---------- */
+.stHead{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:10px}
+.stHead .who{font-size:15px;font-weight:600}
+.stHead .meta{font-family:var(--mono);font-size:11px;color:var(--ink40)}
+.stHead .prog{font-family:var(--mono);font-size:19px;font-weight:600;color:var(--lane)}
+.tabbar{display:flex;gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:10px;overflow:hidden;margin-bottom:10px}
+.tabbar button{flex:1;background:var(--card);color:var(--ink40);padding:11px 4px;font-size:13.5px;border-radius:0}
+.tabbar button[aria-selected=true]{background:var(--lane);color:#fff}
+.pane{display:none}
+.pane.on{display:block}
+
+/* ---------- 수치판 ---------- */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-top:10px}
+.stats div{background:var(--card);padding:8px 10px}
+.stats dt{font-family:var(--mono);font-size:9.5px;color:var(--ink40);letter-spacing:.05em}
+.stats dd{margin:1px 0 0;font-family:var(--mono);font-size:19px;font-weight:600}
+.stats dd small{font-size:10px;font-weight:400;color:var(--ink40)}
+
+.shotlist{list-style:none;margin:10px 0 0;padding:0;border-top:1px solid var(--line);
+  max-height:none}
+.shotlist li{display:flex;align-items:center;gap:9px;padding:6px 2px;border-bottom:1px solid var(--line);
+  font-family:var(--mono);font-size:12px}
+.shotlist .no{color:var(--ink40);width:34px}
+.shotlist .pos{flex:1;color:var(--ink60)}
+.shotlist .sc{font-weight:600;font-size:14px}
+.shotlist li.miss .sc{color:var(--shot)}
+
+/* ---------- 코칭 ---------- */
+.diag{border:1px solid var(--line);border-left:3px solid var(--shot);border-radius:0 10px 10px 0;
+  padding:12px 13px;margin-top:10px;background:#fff}
+.diag .t{font-family:var(--mono);font-size:10px;color:var(--shot);letter-spacing:.1em}
+.diag h4{margin:5px 0;font-size:16px;font-weight:600;line-height:1.4}
+.diag p{margin:0;font-size:13.5px;color:var(--ink60);line-height:1.65}
+.drill{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:7px}
+.drill li{display:flex;gap:10px;align-items:flex-start;background:var(--lane-soft);
+  border-radius:9px;padding:10px 12px;font-size:13.5px;line-height:1.55}
+.drill .k{font-family:var(--mono);font-size:10px;font-weight:600;color:#fff;background:var(--lane);
+  border-radius:5px;padding:2px 6px;flex:none;margin-top:2px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-family:var(--mono);
+  font-size:10.5px;color:var(--ink60)}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px}
+
+.switcher{display:flex;gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:9px;overflow:hidden;margin-bottom:9px}
+.switcher button{flex:1;background:var(--card);color:var(--ink40);padding:8px 4px;font-size:12px;border-radius:0}
+.switcher button[aria-pressed=true]{background:var(--ink);color:#fff}
+.delta{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;
+  border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:9px}
+.delta .v{font-family:var(--mono);font-size:19px;font-weight:600}
+.delta .l{font-family:var(--mono);font-size:9.5px;color:var(--ink40);letter-spacing:.06em}
+.delta .a{font-family:var(--mono);color:var(--gain)}
+.delta .up{color:var(--gain)}
+
+.rank{list-style:none;margin:0;padding:0}
+.rank li{display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--line);font-size:14px}
+.rank .p{font-family:var(--mono);font-size:14px;font-weight:600;width:30px;color:var(--ink40)}
+.rank li.me{background:var(--lane-soft);border-radius:7px}
+.rank li.me .p{color:var(--lane)}
+.rank .nm{flex:1}
+.rank .sc{font-family:var(--mono);font-weight:600}
+
+/* ---------- 체험본 전용 ---------- */
+.banner{background:#0E2E52;color:#fff;border-radius:10px;padding:16px 16px;margin-bottom:12px}
+.banner h1{font-size:21px;margin:0 0 7px;color:#fff}
+.banner p{margin:0;font-size:13.5px;line-height:1.75;color:#D7E2EF}
+.banner p b{color:#fff}
+.gswitch{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.gswitch button{display:block;width:100%;padding:15px 10px;border-radius:10px;
+  background:var(--card);color:var(--ink40);border:2px solid var(--line);
+  font-size:16px;font-weight:700;line-height:1.35;text-align:center}
+.gswitch button small{display:block;font-weight:500;font-size:11.5px;margin-top:3px;opacity:.85}
+.gswitch button[aria-pressed=true][data-g=E]{background:var(--lane);border-color:var(--lane);color:#fff}
+.gswitch button[aria-pressed=true][data-g=C]{background:#5A6270;border-color:#5A6270;color:#fff}
+#diffBox{background:#FBF0DC;border:1px solid #E5C88A;border-radius:10px;
+  padding:11px 13px;margin-bottom:12px;font-size:13.5px;line-height:1.7;color:#5B4300}
+#diffBox b{color:#3D2D00}
+.picker{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.vsub{font-size:11.5px;color:var(--ink40);font-family:var(--mono);margin-top:6px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ① 안내 배너 -->
+  <div class="banner">
+    <h1>샷라인(SHOTLINE) — 결과 화면 체험본</h1>
+    <p>전문가 검토를 위한 <b>열람용 시연본</b>입니다. 카메라와 검출 기능은 빠져 있고,
+    <b>학생이 회차를 마친 뒤 보게 되는 화면</b>만 담았습니다.
+    탄착 자료는 <b>실제 수업에서 수집한 1회차 기록(9명·74발)</b>이며,
+    2·3회차는 <b>회차 비교 기능을 보여드리기 위해 생성한 예시</b>입니다.</p>
+  </div>
+
+  <!-- ② 집단 전환 스위치 -->
+  <div class="gswitch" id="gSwitch">
+    <button data-g="E" aria-pressed="true">실험집단 학생 화면<small>앱의 AI 코칭 제공</small></button>
+    <button data-g="C" aria-pressed="false">비교집단 학생 화면<small>교사의 구두 피드백</small></button>
+  </div>
+
+  <!-- ③ 차이 안내 -->
+  <div id="diffBox"></div>
+
+  <!-- ④ 학생 / 회차 선택 -->
+  <div class="card">
+    <div class="picker">
+      <div><label class="fl">학생</label><select id="selStu"></select></div>
+      <div><label class="fl">회차</label><select id="selSes"></select></div>
+    </div>
+    <p class="note" style="margin-top:9px">1회차는 실제 수업 기록입니다. 2·3회차는 회차 비교 기능을 보여드리기 위한 <b>예시 자료</b>입니다.</p>
+  </div>
+
+  <!-- ⑤ 학생 헤더 -->
+  <div class="stHead">
+    <div>
+      <div class="who" id="stWho">–</div>
+      <div class="meta" id="stMeta">–</div>
+    </div>
+    <div class="prog" id="stProg">0/10</div>
+  </div>
+
+  <!-- ⑥ 탭 -->
+  <nav class="tabbar" id="stTabs"></nav>
+
+  <!-- ⑦ 촬영 결과 -->
+  <div class="pane on" id="paneShoot">
+    <div class="card">
+      <svg viewBox="0 0 400 400" style="width:100%;max-width:420px;margin:0 auto;display:block" id="shootSvg" aria-label="이번 회차 탄착 분포"></svg>
+      <div class="legend" id="shootLegend"></div>
+      <dl class="stats">
+        <div><dt>발수</dt><dd id="shN">0</dd></div>
+        <div><dt>합계</dt><dd id="shSum">0</dd></div>
+        <div><dt>평균</dt><dd id="shAvg">–</dd></div>
+      </dl>
+      <ul class="shotlist" id="shList"></ul>
+    </div>
+  </div>
+
+  <!-- ⑧ AI 코칭 (실험집단 전용) -->
+  <div class="pane" id="paneCoach">
+    <div class="card">
+      <svg viewBox="0 0 400 400" style="width:100%;max-width:420px;margin:0 auto;display:block" id="coachSvg" aria-label="이번 회차 탄착군 분석"></svg>
+      <div class="legend">
+        <span><i style="background:var(--shot)"></i>탄착점</span>
+        <span><i style="background:var(--lane)"></i>평균탄착점(MPI)</span>
+        <span><i style="background:transparent;border:1.5px dashed var(--ink40)"></i>탄착군 범위</span>
+      </div>
+      <dl class="stats">
+        <div><dt>평균</dt><dd id="cAvg">–</dd></div>
+        <div><dt>탄착군</dt><dd id="cGrp">–<small>mm</small></dd></div>
+        <div><dt>편향</dt><dd id="cMpi" style="font-size:15px">–</dd></div>
+      </dl>
+      <div class="diag" id="cGood" style="border-left:3px solid var(--gain)">
+        <span class="t" style="color:var(--gain)">잘한 점</span>
+        <h4 id="cGoodT">–</h4>
+        <p id="cGoodB">–</p>
+      </div>
+      <div class="diag">
+        <span class="t">AI 진단</span>
+        <h4 id="cTitle">–</h4>
+        <p id="cBody">–</p>
+        <p class="vsub" id="cVariant"></p>
+      </div>
+      <div class="diag" id="cPrev" style="border-left:3px solid var(--ink40)">
+        <span class="t" style="color:var(--ink60)">지난 회차와 비교</span>
+        <h4 id="cPrevT">–</h4>
+        <p id="cPrevB">–</p>
+        <dl class="stats" id="cPrevStats" style="margin-top:9px"></dl>
+      </div>
+      <div class="diag" id="cBasic" style="display:none;border-left:3px solid var(--lane)">
+        <span class="t">사격의 기본 <b id="cBasicNo"></b></span>
+        <h4 id="cBasicT">–</h4>
+        <p id="cBasicB">–</p>
+      </div>
+      <h2 style="margin:16px 0 6px">교정 드릴</h2>
+      <ul class="drill" id="cDrill"></ul>
+    </div>
+  </div>
+
+  <!-- ⑨ 기록 -->
+  <div class="pane" id="paneRecord">
+    <div class="card">
+      <div class="switcher" id="recSw">
+        <button data-m="pre" aria-pressed="false">사전(1회차)</button>
+        <button data-m="post" aria-pressed="true">이번 회차</button>
+        <button data-m="both" aria-pressed="false">겹쳐보기</button>
+      </div>
+      <svg viewBox="0 0 400 400" style="width:100%;max-width:420px;margin:0 auto;display:block" id="recSvg"></svg>
+      <div class="legend">
+        <span><i style="background:#6B7480"></i>사전 탄착</span>
+        <span><i style="background:var(--shot)"></i>이번 탄착</span>
+      </div>
+      <div id="recDelta"></div>
+      <h2 style="margin:16px 0 6px">회차별 평균 점수</h2>
+      <svg viewBox="0 0 320 150" style="width:100%;display:block" id="recChart"></svg>
+    </div>
+  </div>
+
+  <!-- ⑩ 랭킹 -->
+  <div class="pane" id="paneRank">
+    <div class="card">
+      <h2 style="margin:0 0 8px">우리 반 · 최고 평균 점수</h2>
+      <ul class="rank" id="rkList"></ul>
+      <p class="note" id="rkNote">학생마다 <b>가장 좋았던 회차의 평균 점수</b>로 매긴 순위입니다. 랭킹은 두 집단 모두에게 똑같이 표시됩니다.</p>
+    </div>
+  </div>
+
+  <!-- ⑪ 요약표 -->
+  <div class="card">
+    <h2 style="margin:0 0 8px">두 집단이 받는 것</h2>
+    <table>
+      <thead><tr><th>항목</th><th style="text-align:center">실험집단</th><th style="text-align:center">비교집단</th></tr></thead>
+      <tbody id="cmpBody"></tbody>
+    </table>
+    <p class="note"><b>두 집단은 같은 앱으로 같은 방식으로 측정합니다.</b>
+    기록되는 자료(좌표·점수·탄착군·편향)도 완전히 동일합니다.
+    화면에 <b>보여주지 않을 뿐</b>이며, 비교집단에는 교사가 표준화된 절차로 구두 피드백을 제공합니다.</p>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+const CFG={dia:300,rings:10,blackRatio:0.4,perRound:10};
+
+/* 코칭 규칙 임계값은 '링 폭' 단위로 둔다.
+   설계기록의 규칙표는 300mm 표적(1링 15mm) 기준으로 쓰였으므로 링 단위로 환산해 두면
+   LaserHIT 1:4(1링 6.25mm)처럼 크기가 다른 표적에서도 같은 규칙이 성립한다. */
+const TH={ mpi:10/15, grpBig:40/15, grpOk:25/15 };
+const ringMm=()=> (CFG.dia/2)/CFG.rings;
+
+function scoreOf(r){
+  const rm=ringMm();
+  if(r>CFG.dia/2) return {i:0,d:0,miss:true};
+  return { i:Math.max(0,Math.min(CFG.rings,CFG.rings+1-Math.ceil(r/rm))),
+           d:Math.max(0,Math.min(CFG.rings+0.9,(CFG.rings+1)-r/rm)), miss:false };
+}
+function prep(list){
+  return list.map(p=>{ const r=Math.hypot(p.x,p.y), s=scoreOf(r);
+    return {no:p.no,x:p.x,y:p.y,r,score:s.i,dec:s.d,miss:s.miss}; });
+}
+function metrics(shots){
+  const hit=shots.filter(s=>!s.miss);
+  if(!hit.length) return {avg:0,dec:0,grp:0,mpiDev:0,mpiClock:'–',hits10:0};
+  const mx=hit.reduce((a,b)=>a+b.x,0)/hit.length, my=hit.reduce((a,b)=>a+b.y,0)/hit.length;
+  let g=0;
+  for(let i=0;i<hit.length;i++) for(let j=i+1;j<hit.length;j++)
+    g=Math.max(g,Math.hypot(hit[i].x-hit[j].x,hit[i].y-hit[j].y));
+  const deg=(Math.atan2(mx,my)*180/Math.PI+360)%360, hr=Math.round(deg/30)||12;
+  return { avg:shots.reduce((a,b)=>a+b.score,0)/shots.length,
+           dec:shots.reduce((a,b)=>a+b.dec,0)/shots.length,
+           grp:g, mpiDev:Math.hypot(mx,my), mpiClock:hr+'시', mpiX:mx, mpiY:my,
+           hits10:hit.filter(s=>s.score===CFG.rings).length };
+}
+
+/* ===================== 코칭 규칙 ===================== */
+const DRILLS={
+  D1:['빈 격발 10회','레이저를 끄고 방아쇠만 당겨 총구가 흔들리지 않는지 확인합니다.'],
+  D2:['3초 유지','격발 후 3초 동안 조준 자세를 그대로 유지한 뒤 표적을 확인합니다.'],
+  D3:['호흡 정지 후 격발','숨을 반쯤 내쉰 상태에서 멈추고, 그 상태로 격발합니다.'],
+  D4:['조준선 유지','격발 순간에도 가늠자와 가늠쇠가 일직선을 유지하는지 확인합니다.'],
+  D5:['견착 위치 재설정','총 뒤판을 어깨 홈에 같은 위치로 붙이는 연습을 5회 반복합니다.'],
+  D6:['좌우 정렬 확인','발 너비와 어깨선이 표적과 나란한지 확인하고 자세를 고정합니다.'],
+  D7:['리듬 격발','조준·정지·격발을 같은 박자로 5발 반복해 일관성을 만듭니다.'],
+  D8:['자세 고정 시간 늘리기','격발 전 정지 시간을 2초에서 4초로 늘려 흔들림을 줄입니다.'],
+  D9:['방아쇠 첫마디','검지 첫마디로만 방아쇠를 곧게 뒤로 당기는 연습을 10회 합니다.'],
+  D10:['결과 먼저 보지 않기','쏜 뒤 마음속으로 셋을 센 다음에 표적을 확인합니다.'],
+  D11:['어깨·목 힘 빼기','견착한 채 어깨와 목의 힘을 빼고 5초 뒤에 격발합니다.'],
+  D12:['조준점 고정 확인','격발 직전 2초 동안 조준점이 멈춰 있는지 짝이 옆에서 봐 줍니다.'],
+  D13:['발 위치 표시','바닥에 발 자리를 표시해 두고 매 발 같은 자리에 섭니다.'],
+  D14:['총구 버티기 20초','조준 자세로 20초 버티기를 3회 반복해 팔 흔들림을 줄입니다.'],
+  D15:['눈 감지 않기','격발 순간 눈을 감지 않는지 짝이 확인해 줍니다.'],
+  D16:['쥐는 힘 일정하게','총을 쥐는 힘을 매번 같게 하고 5발을 쏩니다.'],
+  D17:['세 발 묶기','세 발을 같은 동작으로 연속해 쏘고 얼마나 모였는지 봅니다.'],
+  D18:['짝 관찰','짝이 옆에서 격발 순간 총구가 어디로 움직이는지 보고 알려 줍니다.'],
+  D19:['한 발 자기 점검','한 발마다 자세·호흡·격발 중 무엇이 흔들렸는지 말해 봅니다.'],
+  D20:['호흡 리듬 만들기','들이쉬고 반쯤 내쉰 뒤 3초 안에 격발하는 리듬을 5회 반복합니다.'],
+  U1:['난도 상향','발수를 늘리거나 시간 제한을 두어 조건을 어렵게 만듭니다.'],
+  U2:['시간 제한 사격','한 발을 5초 안에 쏘는 조건에서도 정확도를 유지해 봅니다.']
+};
+/* ★ 사격의 기본 ★
+   수업 초반에는 탄착이 규칙 없이 흩어지는 학생이 대부분입니다. 이때 방향별
+   진단을 해 봐야 근거가 약합니다. 그래서 초반 두 회차와 탄착군이 유난히
+   큰 회차에는, 진단 대신 '반드시 알아야 할 기본' 한 가지를 회차마다 돌아가며
+   알려 줍니다. 여섯 가지를 한 바퀴 돌면 사격의 한 사이클이 완성됩니다. */
+const BASICS=[
+  {k:'자세', t:'① 서는 자세 — 흔들림의 8할은 여기서 정해집니다',
+   b:'발은 어깨너비로 벌리고 표적과 나란히 섭니다. 무릎은 펴되 힘을 주어 잠그지 않습니다. 몸을 뒤로 젖혀 버티면 처음엔 편하지만 곧 흔들립니다. 자세가 편해야 같은 자세를 열 번 반복할 수 있습니다.',
+   d:['D13','D6']},
+  {k:'그립', t:'② 쥐는 법과 견착 — 매번 같은 자리에',
+   b:'총 뒤판을 어깨 홈에 붙이고, 매 발 같은 위치에 오도록 합니다. 쥐는 힘은 달걀을 쥐듯 일정하게. 힘을 꽉 줬다 뺐다 하면 총구가 그만큼 움직입니다.',
+   d:['D5','D16']},
+  {k:'호흡', t:'③ 호흡 — 숨을 멈추는 시점이 정해져 있습니다',
+   b:'들이쉬고 반쯤 내쉰 지점에서 잠시 멈춥니다. 이때가 몸이 가장 조용한 순간입니다. 숨을 참는 시간은 6~8초를 넘기지 않습니다. 더 참으면 오히려 시야가 흐려지고 손이 떨립니다.',
+   d:['D3','D20']},
+  {k:'조준', t:'④ 조준 — 가늠쇠에 초점을 둡니다',
+   b:'가늠자·가늠쇠·표적이 일직선이 되게 합니다. 셋을 동시에 또렷하게 볼 수는 없으므로, 초점은 가늠쇠에 둡니다. 표적이 약간 흐려 보이는 것이 정상입니다.',
+   d:['D4','D12']},
+  {k:'격발', t:'⑤ 격발 — 당기지 말고 눌러 준다는 느낌으로',
+   b:'검지 첫마디로 방아쇠를 곧게 뒤로 눌러 줍니다. 언제 나갈지 예측해서 손목에 힘을 주는 순간 총구가 아래로 눌립니다. 눈을 감거나 어깨를 움츠리는 것도 같은 이유로 생깁니다.',
+   d:['D9','D15']},
+  {k:'마무리', t:'⑥ 마무리와 안전 — 쏜 뒤 3초',
+   b:'격발 후에도 3초간 자세를 그대로 유지한 다음 표적을 확인합니다. 결과를 먼저 보려고 고개를 드는 습관이 아래쪽 탄착의 가장 흔한 원인입니다. 총구는 언제나 표적 방향으로만 두고, 쏘지 않을 때는 손가락을 방아쇠 밖에 둡니다.',
+   d:['D2','D10']}
+];
+/* ★ 같은 진단, 다른 말 ★
+   6시 방향으로 몰리는 원인은 손목 눌림일 수도, 결과를 먼저 보는 습관일 수도,
+   호흡을 참다 지친 것일 수도 있습니다. 무엇 하나로 단정할 수 없으므로
+   회차마다 다른 각도의 설명과 다른 드릴을 제시합니다. 학생 입장에서는
+   매번 새로운 이야기를 듣게 되고, 여러 원인을 하나씩 지워 갈 수 있습니다. */
+const MSG={
+ 'A-1':[
+  {t:'탄착군이 {clock} 방향으로 치우쳐 있어요',
+   b:'여러 발이 아래쪽으로 몰린 것은 조준이 아니라 격발 순간의 습관 때문일 가능성이 큽니다. 방아쇠를 당길 때 손목이 아래로 눌리거나, 발사 직후 결과를 보려고 고개를 먼저 드는 동작이 자주 나타납니다.',
+   d:['D1','D2']},
+  {t:'또 아래쪽입니다 — 이번엔 방아쇠를 살펴봅시다',
+   b:'같은 방향이 반복된다면 원인이 하나로 굳어졌다는 뜻입니다. 이번에는 손가락에 집중해 보십시오. 방아쇠를 “당긴다”고 생각하면 손 전체에 힘이 들어가 총구가 눌립니다. 검지 첫마디로 곧게 뒤로 눌러 준다는 느낌이면 충분합니다.',
+   d:['D9','D19']},
+  {t:'아래쪽 쏠림 — 결과를 너무 빨리 보고 있지 않나요',
+   b:'잘 맞았는지 궁금해 고개나 총구를 먼저 드는 동작은 본인은 느끼지 못합니다. 총알이 나가기 전에 이미 움직이기 때문에 탄착이 아래로 내려갑니다. 이번 회차에는 쏜 뒤 셋을 세고 표적을 보십시오.',
+   d:['D10','D2']},
+  {t:'아래쪽 쏠림 — 숨을 너무 오래 참고 있을 수도 있습니다',
+   b:'숨을 8초 이상 참으면 산소가 줄어 팔이 서서히 내려앉습니다. 본인은 조준을 유지한다고 느끼지만 총구는 아래로 흐릅니다. 멈춘 뒤 3초 안에 격발하는 리듬을 만들어 보십시오.',
+   d:['D20','D14']}],
+ 'A-2':[
+  {t:'탄착군이 {clock} 방향으로 치우쳐 있어요',
+   b:'위쪽으로 몰렸다면 격발 순간 총구가 들리는 경우가 많습니다. 호흡을 멈추지 않은 상태에서 격발하면 이런 형태가 나타납니다.',
+   d:['D3','D4']},
+  {t:'또 위쪽입니다 — 어깨에 힘이 들어가 있지 않나요',
+   b:'격발 순간을 예측하고 몸이 먼저 반응하면 어깨가 올라가면서 총구가 들립니다. 견착한 채 어깨와 목의 힘을 빼고 5초를 센 다음 쏘아 보십시오.',
+   d:['D11','D14']},
+  {t:'위쪽 쏠림 — 조준선을 다시 확인합시다',
+   b:'가늠쇠가 가늠자보다 높게 보이면 실제보다 위를 겨누게 됩니다. 초점을 가늠쇠에 두고, 격발 순간까지 그 관계가 유지되는지 짝에게 봐 달라고 하십시오.',
+   d:['D4','D12']},
+  {t:'위쪽 쏠림 — 숨을 멈추는 지점을 정해 봅시다',
+   b:'들이쉰 상태로 쏘면 가슴이 부풀어 총구가 위로 향합니다. 반쯤 내쉰 지점에서 멈추는 습관을 만들면 이 방향 쏠림은 대개 사라집니다.',
+   d:['D3','D20']}],
+ 'A-3':[
+  {t:'탄착군이 {clock} 방향으로 치우쳐 있어요',
+   b:'좌우로 몰린 것은 견착이 한쪽으로 기울었거나 발 위치가 표적과 나란하지 않을 때 나타납니다.',
+   d:['D5','D6']},
+  {t:'또 옆쪽입니다 — 서는 자리부터 고정해 봅시다',
+   b:'같은 방향으로 계속 벗어난다면 총이 아니라 몸의 방향이 원인일 가능성이 큽니다. 바닥에 발 자리를 표시해 두고 매 발 같은 자리에 서 보십시오.',
+   d:['D13','D6']},
+  {t:'옆쪽 쏠림 — 방아쇠를 옆으로 밀고 있지 않나요',
+   b:'검지를 너무 깊게 걸면 방아쇠를 뒤가 아니라 옆으로 밀게 됩니다. 그만큼 총구가 돌아갑니다. 첫마디만 걸고 곧게 뒤로 눌러 보십시오.',
+   d:['D9','D1']},
+  {t:'옆쪽 쏠림 — 얼굴이 총에 눌려 있을 수 있습니다',
+   b:'뺨을 개머리판에 지나치게 붙이면 조준선이 옆으로 틀어집니다. 견착 위치를 매번 같게 잡고, 목에 힘을 뺀 상태로 조준해 보십시오.',
+   d:['D5','D11']}],
+ 'B-1':[
+  {t:'조준은 정확한데 흩어짐이 큽니다',
+   b:'평균 탄착점은 중심에 가까우니 조준은 잘하고 있습니다. 다만 발마다 결과가 달라지고 있어, 매번 같은 동작을 반복하는 연습이 필요합니다.',
+   d:['D7','D8']},
+  {t:'방향은 문제없습니다 — 이제 “똑같이” 쏘는 연습입니다',
+   b:'흩어짐이 크다는 것은 자세·호흡·격발 중 어느 하나가 발마다 달라진다는 뜻입니다. 한 발 쏠 때마다 무엇이 흔들렸는지 소리 내어 말해 보면 원인이 금방 드러납니다.',
+   d:['D19','D17']},
+  {t:'흩어짐이 큽니다 — 격발 전 정지 시간을 늘려 봅시다',
+   b:'조준점이 멈추기 전에 급하게 쏘면 매번 다른 곳에서 총알이 나갑니다. 격발 전 멈춤을 2초에서 4초로 늘리고, 조준점이 실제로 멈춰 있는지 짝이 봐 주게 하십시오.',
+   d:['D8','D12']},
+  {t:'흩어짐이 큽니다 — 쥐는 힘부터 일정하게',
+   b:'총을 쥐는 힘이 발마다 다르면 같은 자세로도 결과가 달라집니다. 쥐는 힘과 견착 위치를 매번 같게 맞추는 것만으로 탄착군이 눈에 띄게 좁아집니다.',
+   d:['D16','D5']}],
+ 'B-2':[
+  {t:'안정적으로 잘 쏘고 있습니다',
+   b:'평균 탄착점도 중심에 가깝고 흩어짐도 작습니다. 지금 자세를 유지하면서 조건을 조금 더 어렵게 만들어 보십시오.',
+   d:['U1']},
+  {t:'좋은 상태가 이어지고 있습니다',
+   b:'이 정도면 기본기는 자리를 잡았습니다. 다음 단계는 시간 압박 속에서도 같은 결과를 내는 것입니다. 한 발을 5초 안에 쏘는 조건으로 바꿔 보십시오.',
+   d:['U2','D17']},
+  {t:'잘 쏘고 있습니다 — 이제 짝을 봐 줄 차례입니다',
+   b:'자기 사격이 안정되었다면, 짝의 격발 순간을 관찰해 알려 주는 것이 자기 실력에도 도움이 됩니다. 남의 총구 움직임이 보이기 시작하면 자기 것도 보입니다.',
+   d:['D18','U1']}],
+ 'B-3':[
+  {t:'중심에 모이고 있습니다',
+   b:'큰 편향은 없습니다. 흩어짐을 더 줄이는 데 집중하십시오.',
+   d:['D7']},
+  {t:'방향은 잡혔습니다 — 이제 폭을 줄일 차례',
+   b:'평균은 중심에 있고 쏠림도 없습니다. 세 발을 같은 동작으로 연속해 쏘고, 그 세 발이 얼마나 모이는지 확인해 보십시오.',
+   d:['D17','D7']},
+  {t:'좋습니다 — 한 발마다 스스로 점검해 봅시다',
+   b:'지금부터는 잘 맞은 발이 왜 잘 맞았는지 아는 것이 중요합니다. 한 발마다 자세·호흡·격발 중 무엇이 좋았는지 말해 보면 그 감각이 오래 갑니다.',
+   d:['D19','D8']}]
+};
+/* ★ 잘한 점 ★ 없는 칭찬을 지어내지 않도록 전부 기록에서 계산합니다. */
+function praise(m,shots){
+  const rm=ringMm(), grpR=m.grp/rm, devR=m.mpiDev/rm;
+  const hit=shots.filter(s=>!s.miss), miss=shots.length-hit.length;
+  const best=hit.length?hit.reduce((a,b)=>b.score>a.score?b:a):null;
+  const top=hit.filter(s=>s.score>=CFG.rings-1).length;
+  const c=[];
+  if(m.hits10>=3) c.push([`만점이 ${m.hits10}발입니다`,
+    `${CFG.rings}점을 ${m.hits10}발 냈습니다. 우연으로 나오기 어려운 숫자입니다. 그때의 호흡과 격발 느낌을 기억해 두십시오.`,90+m.hits10]);
+  if(grpR<TH.grpOk) c.push(['탄착이 한곳에 모였습니다',
+    `가장 먼 두 발 사이가 ${Math.round(m.grp)}mm입니다. 매번 같은 동작을 반복하고 있다는 뜻이며, 이것이 실력의 뼈대입니다.`,80]);
+  if(devR<TH.mpi*0.6) c.push(['조준이 중심을 향하고 있습니다',
+    `평균 탄착점이 중심에서 ${Math.round(m.mpiDev)}mm밖에 벗어나지 않았습니다. 겨냥 자체는 정확합니다.`,70]);
+  if(shots.length>=CFG.perRound&&miss===0) c.push(['한 발도 표적을 벗어나지 않았습니다',
+    `${shots.length}발 모두 표적 안에 넣었습니다. 기본 조준과 자세가 자리를 잡았다는 신호입니다.`,60]);
+  if(top>=Math.ceil(shots.length*0.4)) c.push([`${CFG.rings-1}점 이상이 ${top}발입니다`,
+    `절반 가까이를 안쪽 링에 넣었습니다. 좋은 발이 우연이 아니라는 뜻입니다.`,55]);
+  if(best&&best.score>=CFG.rings-2) c.push([`가장 좋은 발이 ${best.score}점입니다`,
+    `${best.no}번째 발이 중심에서 ${Math.round(best.r)}mm 안에 들어갔습니다. 그 한 발은 제대로 된 것이니, 그때의 느낌을 기준으로 삼으십시오.`,40]);
+  if(!c.length) c.push([`${shots.length}발을 끝까지 쐈습니다`,
+    '결과와 상관없이 회차를 끝까지 마친 것 자체가 다음 회차의 바탕이 됩니다. 오늘 어떤 발이 그나마 나았는지 하나만 기억해 두십시오.',10]);
+  c.sort((a,b)=>b[2]-a[2]);
+  return {title:c[0][0], body:c[0][1]};
+}
+/* ★ 지난 회차와 비교 ★ 평균만 보면 운에 휘둘리므로 탄착군·편향도 함께 봅니다. */
+function compare(m,prev){
+  const num=v=>typeof v==='number'&&isFinite(v);
+  if(!prev||!num(prev.avg)||!num(prev.grp_mm)||!num(prev.mpi_dev_mm)) return null;
+  const d={avg:m.avg-prev.avg, grp:m.grp-prev.grp_mm, dev:m.mpiDev-prev.mpi_dev_mm};
+  const rm=ringMm(), near=(x,lim)=>Math.abs(x)<lim, parts=[];
+  if(!near(d.avg,0.3)) parts.push(`평균 ${d.avg>0?'+':''}${d.avg.toFixed(1)}점`);
+  if(!near(d.grp,rm*0.3)) parts.push(`탄착군 ${d.grp>0?'+':''}${Math.round(d.grp)}mm`);
+  if(!near(d.dev,rm*0.3)) parts.push(`편향 ${d.dev>0?'+':''}${Math.round(d.dev)}mm`);
+  let t,b;
+  const worse=(d.avg<=-0.3)&&(d.grp>=rm*0.3||d.dev>=rm*0.3);
+  if(d.grp<=-rm*0.3&&d.avg>=0.3){
+    t=`${prev.session}회차보다 확실히 좋아졌습니다`;
+    b=`평균이 ${prev.avg.toFixed(1)}점에서 ${m.avg.toFixed(1)}점으로 올랐고, 탄착군도 ${Math.round(prev.grp_mm)}mm에서 ${Math.round(m.grp)}mm로 좁아졌습니다. 점수와 일관성이 함께 오른 것이라 운이 아닙니다. 지금 하는 방식을 그대로 유지하십시오.`;
+  } else if(d.grp<=-rm*0.3&&d.avg<0.3){
+    t='점수는 비슷하지만 흩어짐이 줄었습니다';
+    b=`탄착군이 ${Math.round(prev.grp_mm)}mm에서 ${Math.round(m.grp)}mm로 좁아졌습니다. 동작이 일정해졌다는 뜻입니다. 이 상태에서 조준점만 중심으로 옮기면 점수는 따라 오릅니다.`;
+  } else if(d.avg>=0.3&&d.grp>rm*0.3){
+    t='점수는 올랐지만 흩어짐은 커졌습니다';
+    b=`평균은 ${d.avg.toFixed(1)}점 올랐는데 탄착군은 ${Math.round(prev.grp_mm)}mm에서 ${Math.round(m.grp)}mm로 넓어졌습니다. 잘 맞은 몇 발이 평균을 올린 것이라 다음 회차에 다시 내려갈 수 있습니다. 모든 발을 같게 만드는 쪽에 집중하십시오.`;
+  } else if(worse){
+    const why = d.dev>=rm*0.3 ? `평균 탄착점이 중심에서 ${Math.round(prev.mpi_dev_mm)}mm → ${Math.round(m.mpiDev)}mm로 더 벗어났습니다. 조준이나 자세가 한쪽으로 틀어졌습니다.`
+                              : `탄착군이 ${Math.round(prev.grp_mm)}mm → ${Math.round(m.grp)}mm로 넓어졌습니다. 발마다 동작이 달라지고 있습니다.`;
+    t=`${prev.session}회차보다 내려갔습니다`;
+    b=`평균이 ${prev.avg.toFixed(1)}점에서 ${m.avg.toFixed(1)}점이 되었습니다. ${why} 실력이 줄어든 것이 아니라 대개 피로나 서두름 때문입니다. 이번에는 발수를 줄이더라도 한 발씩 천천히 해 보십시오.`;
+  } else if(d.avg<=-0.3){
+    t='점수는 조금 내려갔지만 형태는 유지되고 있습니다';
+    b=`평균은 ${d.avg.toFixed(1)}점 변했지만 탄착군과 편향은 지난 회차와 비슷합니다. 동작은 그대로이니 크게 바꾸지 말고, 격발 순간에만 조금 더 집중해 보십시오.`;
+  } else {
+    t=`${prev.session}회차와 비슷합니다`;
+    b='큰 변화가 없습니다. 같은 결과가 반복된다는 것은 동작이 안정되었다는 뜻이기도 합니다. 다음 단계로 올라가려면 한 가지만 의식적으로 바꿔 보십시오 — 예를 들어 격발 전 멈춤을 1초 더 길게.';
+  }
+  return {title:t, body:b, delta:d, prev, summary:parts.join(' · ')};
+}
+/* 진단 규칙 자체는 그대로입니다 — 어떤 코드인지만 정합니다 */
+function diagCode(m){
+  const rm=ringMm(), devR=m.mpiDev/rm, grpR=m.grp/rm;
+  const clock=parseInt(m.mpiClock,10)||12;
+  if(devR>=TH.mpi){
+    if(clock>=5&&clock<=7) return 'A-1';
+    if(clock>=11||clock<=1) return 'A-2';
+    return 'A-3';
+  }
+  if(grpR>=TH.grpBig) return 'B-1';
+  if(grpR<TH.grpOk) return 'B-2';
+  return 'B-3';
+}
+/* opts.seen   : 이 학생이 같은 코드를 이미 몇 번 받았는지 (설명을 바꾸는 기준)
+   opts.session: 회차 (1~2회차에는 기본기를 함께 보여 줍니다)
+   opts.basics : 지금까지 마친 회차 수 (기본기를 순서대로 돌리는 기준) */
+function diagnose(m,opts){
+  opts=opts||{};
+  const code=diagCode(m);
+  const arr=MSG[code]||MSG['B-3'];
+  const seen=Math.max(0,opts.seen|0);
+  const v=arr[seen%arr.length];
+  const out={code:code, title:v.t.replace('{clock}',m.mpiClock),
+    body:v.b, drills:v.d.slice(),
+    variant:(seen%arr.length)+1, variants:arr.length};
+  /* 수업 초반이거나 탄착이 유난히 흩어진 회차에는 기본기를 함께 붙입니다 */
+  const rm=ringMm(), grpR=m.grp/rm;
+  const early=(opts.session|0)>0 && (opts.session|0)<=2;
+  const wild=grpR>=TH.grpBig*1.2;
+  if(early||wild){
+    const bi=Math.max(0,opts.basics|0)%BASICS.length;
+    out.basic=BASICS[bi]; out.basicIdx=bi+1; out.basicN=BASICS.length;
+  }
+  return out;
+}
+function drawTarget(g,shots,opt){
+  const C=200,R=190,STEP=R/CFG.rings, K=R/(CFG.dia/2);
+  let h=`<rect x="0" y="0" width="400" height="400" fill="#FBFCFD"/>`;
+  const blackK=Math.round(CFG.rings*0.4);
+  h+=`<circle cx="${C}" cy="${C}" r="${STEP*blackK}" fill="#12161D"/>`;
+  for(let k=1;k<=CFG.rings;k++){ const r=STEP*k;
+    h+=`<circle cx="${C}" cy="${C}" r="${r}" fill="none" stroke="${k<=blackK?'rgba(255,255,255,.45)':'#C4CCD6'}" stroke-width="1"/>`; }
+  const pt=(s,col,rad,fade)=>`<circle cx="${C+s.x*K}" cy="${C-s.y*K}" r="${rad}" fill="${col}" stroke="#fff" stroke-width="1.6" opacity="${fade||1}"/>`;
+  // 탄착군 원은 탄착점 아래에, MPI 십자선은 탄착점 위에 그린다
+  // (십자선을 먼저 그리면 탄착점에 가려 보이지 않는다)
+  let cross='';
+  if(opt&&opt.group&&shots.length){
+    const m=metrics(shots), rad=m.grp/2*K+6;
+    const cx=C+m.mpiX*K, cy=C-m.mpiY*K;
+    h+=`<circle cx="${cx}" cy="${cy}" r="${rad}" fill="none" stroke="rgba(18,22,29,.55)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    cross=`<path d="M${cx-13} ${cy}H${cx+13}M${cx} ${cy-13}V${cy+13}" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>`
+         +`<path d="M${cx-13} ${cy}H${cx+13}M${cx} ${cy-13}V${cy+13}" stroke="#123D6B" stroke-width="2.5" stroke-linecap="round"/>`;
+  }
+  shots.forEach(s=>{ h+=pt(s,(opt&&opt.color)||'#E2452F',(opt&&opt.small)?5:6.5,opt&&opt.fade?0.5:1); });
+  g.innerHTML=h+cross;
+}
+
+</script>
+<script>
+const DATA={"students": [{"id": "S1", "label": "학생 1", "sessions": {"1": [{"no": 1, "x": -3.41, "y": 8.21}, {"no": 2, "x": 2.46, "y": -16.3}, {"no": 3, "x": 17.39, "y": -42.99}, {"no": 4, "x": 0.49, "y": -49.87}, {"no": 5, "x": -10.93, "y": -24.39}, {"no": 6, "x": -23.84, "y": -16.09}, {"no": 7, "x": -28.09, "y": -64.43}, {"no": 8, "x": -28.66, "y": -38.28}, {"no": 9, "x": -5.1, "y": -55.9}, {"no": 10, "x": 46.65, "y": -26.98}], "2": [{"no": 1, "x": 3.74, "y": 2.24}, {"no": 2, "x": 4.42, "y": -21.55}, {"no": 3, "x": 11.04, "y": -33.31}, {"no": 4, "x": 3.63, "y": -38.12}, {"no": 5, "x": -2.97, "y": -15.44}, {"no": 6, "x": -25.72, "y": -19.93}, {"no": 7, "x": -17.01, "y": -52.81}, {"no": 8, "x": -22.57, "y": -25.23}, {"no": 9, "x": 4.51, "y": -39.37}, {"no": 10, "x": 47.27, "y": -19.28}], "3": [{"no": 1, "x": -9.43, "y": 4.38}, {"no": 2, "x": 2.3, "y": -4.04}, {"no": 3, "x": 16.86, "y": -27.8}, {"no": 4, "x": -7.34, "y": -26.89}, {"no": 5, "x": 1.23, "y": -18.28}, {"no": 6, "x": -16.0, "y": -8.31}, {"no": 7, "x": -25.73, "y": -41.3}, {"no": 8, "x": -18.45, "y": -34.69}, {"no": 9, "x": -2.26, "y": -35.9}, {"no": 10, "x": 39.88, "y": -23.38}]}}, {"id": "S2", "label": "학생 2", "sessions": {"1": [{"no": 1, "x": -53.18, "y": -9.24}, {"no": 2, "x": -69.92, "y": 3.34}, {"no": 3, "x": -104.64, "y": 26.53}, {"no": 4, "x": 82.79, "y": 6.65}, {"no": 5, "x": 101.93, "y": -74.83}, {"no": 6, "x": 93.38, "y": 38.89}, {"no": 7, "x": 57.51, "y": 26.86}, {"no": 8, "x": 52.34, "y": 53.21}, {"no": 9, "x": -68.12, "y": 52.55}, {"no": 10, "x": -15.08, "y": 71.71}], "2": [{"no": 1, "x": -70.42, "y": -17.42}, {"no": 2, "x": -82.61, "y": 2.24}, {"no": 3, "x": -118.45, "y": 29.26}, {"no": 4, "x": 98.55, "y": 13.96}, {"no": 5, "x": 125.25, "y": -79.4}, {"no": 6, "x": 117.77, "y": 38.26}, {"no": 7, "x": 64.16, "y": 30.19}, {"no": 8, "x": 52.97, "y": 55.07}, {"no": 9, "x": -80.74, "y": 65.84}, {"no": 10, "x": -17.15, "y": 76.62}], "3": [{"no": 1, "x": -44.87, "y": -9.02}, {"no": 2, "x": -51.21, "y": 9.45}, {"no": 3, "x": -69.69, "y": 25.85}, {"no": 4, "x": 60.92, "y": -2.37}, {"no": 5, "x": 78.95, "y": -57.09}, {"no": 6, "x": 58.25, "y": 33.96}, {"no": 7, "x": 43.0, "y": 19.71}, {"no": 8, "x": 37.0, "y": 29.77}, {"no": 9, "x": -50.19, "y": 33.74}, {"no": 10, "x": -8.86, "y": 45.78}]}}, {"id": "S3", "label": "학생 3", "sessions": {"1": [{"no": 1, "x": 2.1, "y": 2.28}, {"no": 2, "x": 107.6, "y": -125.95}]}}, {"id": "S4", "label": "학생 4", "sessions": {"1": [{"no": 1, "x": 9.29, "y": -13.45}, {"no": 2, "x": -19.52, "y": -4.27}, {"no": 3, "x": 12.73, "y": -14.02}, {"no": 4, "x": 17.37, "y": -6.13}, {"no": 5, "x": -17.97, "y": -4.93}, {"no": 6, "x": -1.03, "y": -11.61}, {"no": 7, "x": 6.38, "y": -18.92}, {"no": 8, "x": -19.19, "y": -12.16}, {"no": 9, "x": -1.65, "y": -6.87}, {"no": 10, "x": 0.35, "y": -16.99}], "2": [{"no": 1, "x": 9.18, "y": -11.89}, {"no": 2, "x": -21.92, "y": 2.75}, {"no": 3, "x": 14.75, "y": -11.54}, {"no": 4, "x": 11.69, "y": -6.1}, {"no": 5, "x": -9.06, "y": -13.05}, {"no": 6, "x": 0.85, "y": -1.76}, {"no": 7, "x": 12.9, "y": -16.28}, {"no": 8, "x": -22.92, "y": -18.43}, {"no": 9, "x": 7.52, "y": -5.73}, {"no": 10, "x": 0.22, "y": -20.89}], "3": [{"no": 1, "x": 6.16, "y": -10.67}, {"no": 2, "x": -14.53, "y": -9.86}, {"no": 3, "x": 12.14, "y": -14.39}, {"no": 4, "x": 14.36, "y": -4.54}, {"no": 5, "x": -11.01, "y": -7.83}, {"no": 6, "x": 7.39, "y": -0.67}, {"no": 7, "x": -0.81, "y": -10.58}, {"no": 8, "x": -5.84, "y": -7.0}, {"no": 9, "x": -5.64, "y": -7.58}, {"no": 10, "x": 4.47, "y": -5.27}]}}, {"id": "S5", "label": "학생 5", "sessions": {"1": [{"no": 1, "x": 119.33, "y": 45.26}, {"no": 2, "x": -97.65, "y": -144.13}, {"no": 3, "x": -110.57, "y": 151.1}, {"no": 4, "x": 107.98, "y": -122.82}, {"no": 5, "x": -8.48, "y": 32.98}, {"no": 6, "x": 28.01, "y": -8.7}, {"no": 7, "x": -92.0, "y": -90.32}, {"no": 8, "x": -93.88, "y": -5.86}, {"no": 9, "x": 48.9, "y": 133.09}, {"no": 10, "x": 8.99, "y": 144.74}], "2": [{"no": 1, "x": 102.05, "y": 42.17}, {"no": 2, "x": -75.44, "y": -115.53}, {"no": 3, "x": -87.42, "y": 123.89}, {"no": 4, "x": 82.34, "y": -98.27}, {"no": 5, "x": -3.15, "y": 30.19}, {"no": 6, "x": 23.27, "y": -11.17}, {"no": 7, "x": -68.46, "y": -72.32}, {"no": 8, "x": -77.22, "y": -1.89}, {"no": 9, "x": 41.82, "y": 108.67}, {"no": 10, "x": 15.84, "y": 129.42}], "3": [{"no": 1, "x": 83.78, "y": 24.86}, {"no": 2, "x": -67.58, "y": -105.95}, {"no": 3, "x": -68.78, "y": 108.12}, {"no": 4, "x": 77.41, "y": -81.61}, {"no": 5, "x": -13.87, "y": 14.7}, {"no": 6, "x": 14.56, "y": 2.35}, {"no": 7, "x": -57.73, "y": -62.83}, {"no": 8, "x": -72.71, "y": -11.25}, {"no": 9, "x": 37.65, "y": 96.31}, {"no": 10, "x": 4.91, "y": 104.99}]}}, {"id": "S6", "label": "학생 6", "sessions": {"1": [{"no": 1, "x": 25.33, "y": -9.91}, {"no": 2, "x": 9.04, "y": -57.09}, {"no": 3, "x": -6.01, "y": 6.05}, {"no": 4, "x": -38.06, "y": -86.56}, {"no": 5, "x": -8.91, "y": 50.71}, {"no": 6, "x": -27.96, "y": -25.8}, {"no": 7, "x": -40.15, "y": -19.44}, {"no": 8, "x": -42.69, "y": -32.41}, {"no": 9, "x": 18.22, "y": -27.96}, {"no": 10, "x": -27.62, "y": -29.49}], "2": [{"no": 1, "x": 27.43, "y": -9.94}, {"no": 2, "x": 5.93, "y": -46.87}, {"no": 3, "x": -12.69, "y": 13.87}, {"no": 4, "x": -39.8, "y": -65.06}, {"no": 5, "x": -3.3, "y": 41.23}, {"no": 6, "x": -30.15, "y": -12.78}, {"no": 7, "x": -29.24, "y": -19.25}, {"no": 8, "x": -28.55, "y": -26.41}, {"no": 9, "x": 12.68, "y": -22.49}, {"no": 10, "x": -27.68, "y": -16.18}], "3": [{"no": 1, "x": 21.39, "y": -9.71}, {"no": 2, "x": 8.5, "y": -47.27}, {"no": 3, "x": -0.66, "y": 12.82}, {"no": 4, "x": -32.9, "y": -69.29}, {"no": 5, "x": 2.06, "y": 30.67}, {"no": 6, "x": -27.22, "y": -25.39}, {"no": 7, "x": -25.07, "y": -5.59}, {"no": 8, "x": -34.3, "y": -22.18}, {"no": 9, "x": 12.25, "y": -13.54}, {"no": 10, "x": -10.52, "y": -16.18}]}}, {"id": "S7", "label": "학생 7", "sessions": {"1": [{"no": 1, "x": 4.58, "y": -2.36}, {"no": 2, "x": 23.83, "y": -5.96}, {"no": 3, "x": -14.81, "y": -8.62}, {"no": 4, "x": -12.93, "y": -22.93}, {"no": 5, "x": 6.44, "y": -10.88}, {"no": 6, "x": -15.53, "y": -0.63}, {"no": 7, "x": -6.69, "y": -13.41}, {"no": 8, "x": -24.69, "y": -28.06}, {"no": 9, "x": 28.19, "y": 26.24}, {"no": 10, "x": 13.06, "y": -8.04}], "2": [{"no": 1, "x": 9.04, "y": 0.99}, {"no": 2, "x": 19.41, "y": -2.8}, {"no": 3, "x": -18.15, "y": -14.1}, {"no": 4, "x": -15.42, "y": -16.33}, {"no": 5, "x": 3.6, "y": -9.32}, {"no": 6, "x": -8.17, "y": -0.75}, {"no": 7, "x": 2.93, "y": -2.84}, {"no": 8, "x": -21.89, "y": -25.54}, {"no": 9, "x": 19.39, "y": 20.72}, {"no": 10, "x": 12.25, "y": -9.06}], "3": [{"no": 1, "x": 6.06, "y": 6.86}, {"no": 2, "x": 17.62, "y": -0.62}, {"no": 3, "x": -14.27, "y": -3.97}, {"no": 4, "x": -4.56, "y": -24.56}, {"no": 5, "x": -0.24, "y": -4.1}, {"no": 6, "x": -10.56, "y": -7.06}, {"no": 7, "x": -10.04, "y": -4.54}, {"no": 8, "x": -25.34, "y": -13.22}, {"no": 9, "x": 17.39, "y": 27.06}, {"no": 10, "x": 17.56, "y": -1.92}]}}, {"id": "S8", "label": "학생 8", "sessions": {"1": [{"no": 1, "x": -116.94, "y": 44.91}, {"no": 2, "x": -116.18, "y": 45.27}]}}, {"id": "S9", "label": "학생 9", "sessions": {"1": [{"no": 1, "x": -47.09, "y": -42.54}, {"no": 2, "x": 0.7, "y": -28.49}, {"no": 3, "x": 35.04, "y": -15.54}, {"no": 4, "x": 1.69, "y": -2.88}, {"no": 5, "x": -10.07, "y": -1.71}, {"no": 6, "x": -10.26, "y": -5.43}, {"no": 7, "x": -12.47, "y": 5.99}, {"no": 8, "x": 2.03, "y": -11.4}, {"no": 9, "x": 13.59, "y": -30.01}, {"no": 10, "x": 13.0, "y": -42.74}], "2": [{"no": 1, "x": -48.54, "y": -37.19}, {"no": 2, "x": -5.62, "y": -27.75}, {"no": 3, "x": 36.44, "y": -21.32}, {"no": 4, "x": -3.12, "y": 0.82}, {"no": 5, "x": 0.22, "y": -5.6}, {"no": 6, "x": -10.48, "y": 0.98}, {"no": 7, "x": -18.54, "y": 0.81}, {"no": 8, "x": -3.44, "y": -6.43}, {"no": 9, "x": 18.27, "y": -19.42}, {"no": 10, "x": 17.73, "y": -33.81}], "3": [{"no": 1, "x": -29.85, "y": -23.83}, {"no": 2, "x": -7.47, "y": -22.62}, {"no": 3, "x": 18.43, "y": -12.4}, {"no": 4, "x": -0.57, "y": 5.72}, {"no": 5, "x": 1.93, "y": -4.43}, {"no": 6, "x": -8.19, "y": -11.5}, {"no": 7, "x": -8.84, "y": 12.96}, {"no": 8, "x": -2.01, "y": -6.75}, {"no": 9, "x": 12.55, "y": -27.63}, {"no": 10, "x": 15.73, "y": -23.53}]}}]};
+
+/* ===================== 상태 ===================== */
+let GROUP='E', STU=DATA.students[0].id, SES='1', recMode='post';
+
+const CMP_ROWS=[
+  ['탄착 위치·점수 확인',1,1],
+  ['발별 기록 목록',1,1],
+  ['회차별 추이 그래프',1,1],
+  ['랭킹',1,1],
+  ['평균탄착점·탄착군 표시',1,0],
+  ['AI 진단',1,0],
+  ['교정 드릴 처방',1,0],
+  ['잘한 점 피드백',1,0],
+  ['지난 회차와 비교',1,0],
+  ['교사의 구두 피드백',0,1]
+];
+const DIFF={
+  E:'지금은 <b>실험집단</b> 화면입니다. 탭이 <b>4개</b>이고 <b>AI 코칭</b> 탭이 있습니다. '+
+    '탄착 분포에 <b>평균탄착점 십자</b>와 <b>탄착군 범위</b>가 함께 표시됩니다.',
+  C:'지금은 <b>비교집단</b> 화면입니다. 탭이 <b>3개</b>이고 <b>AI 코칭 탭이 없습니다</b>. '+
+    '탄착 분포에 평균탄착점·탄착군 표시도 나오지 않습니다. '+
+    '<b>같은 학생의 같은 사격 기록인데 화면만 다릅니다.</b>'
+};
+
+/* ===================== 도우미 ===================== */
+function stuOf(id){ return DATA.students.find(s=>s.id===id); }
+function sessionList(st){ return Object.keys(st.sessions).sort(); }
+function shotsOf(st,ses){ const l=st.sessions[ses]; return l?prep(l):[]; }
+function roundOf(st,ses){
+  const sh=shotsOf(st,ses); if(!sh.length) return null;
+  const m=metrics(sh);
+  return {session:+ses, n:sh.length, avg:m.avg, grp_mm:m.grp, mpi_dev_mm:m.mpiDev, m, shots:sh};
+}
+/* diagnose 의 seen/basics 는 '이전 회차들'에서 셉니다 — 회차마다 다른 표현이 나가도록 */
+function history(st,ses){
+  const prev=sessionList(st).filter(s=>+s<+ses);
+  let seen=0; const code0=diagCode(roundOf(st,ses).m);
+  prev.forEach(s=>{ if(diagCode(roundOf(st,s).m)===code0) seen++; });
+  return {seen, basics:prev.length, prevSession: prev.length?prev[prev.length-1]:null};
+}
+
+/* ===================== 선택 상자 ===================== */
+function buildStuSelect(){
+  document.getElementById('selStu').innerHTML=DATA.students.map(s=>{
+    const only=sessionList(s).length===1?' (1회차만)':'';
+    return `<option value="${s.id}"${s.id===STU?' selected':''}>${s.label}${only}</option>`;
+  }).join('');
+}
+function buildSesSelect(){
+  const st=stuOf(STU), list=sessionList(st);
+  if(list.indexOf(SES)<0) SES=list[0];
+  document.getElementById('selSes').innerHTML=list.map(s=>
+    `<option value="${s}"${s===SES?' selected':''}>${s}회차${s==='1'?'':' (예시)'}</option>`).join('');
+}
+
+/* ===================== 탭 ===================== */
+const TABDEF=[{k:'shoot',n:'촬영 결과'},{k:'coach',n:'AI 코칭'},{k:'record',n:'기록'},{k:'rank',n:'랭킹'}];
+let curTab='shoot';
+function buildTabs(){
+  const tabs=TABDEF.filter(t=>t.k!=='coach'||GROUP==='E');
+  if(!tabs.some(t=>t.k===curTab)) curTab='shoot';
+  document.getElementById('stTabs').innerHTML=tabs.map(t=>
+    `<button data-t="${t.k}" aria-selected="${t.k===curTab}">${t.n}</button>`).join('');
+}
+function goTab(k){
+  if(k==='coach'&&GROUP!=='E') return;
+  curTab=k;
+  ['shoot','coach','record','rank'].forEach(t=>{
+    const el=document.getElementById('pane'+t[0].toUpperCase()+t.slice(1));
+    if(el) el.classList.toggle('on',t===k);
+  });
+  [...document.getElementById('stTabs').children].forEach(b=>
+    b.setAttribute('aria-selected',String(b.dataset.t===k)));
+  if(k==='record') renderRecord();
+  if(k==='rank') renderRank();
+}
+
+/* ===================== 촬영 결과 ===================== */
+function renderShoot(){
+  const st=stuOf(STU), sh=shotsOf(st,SES), hit=sh.filter(s=>!s.miss);
+  const showGroup = GROUP==='E';
+  drawTarget(document.getElementById('shootSvg'), hit, {group:showGroup});
+  document.getElementById('shootLegend').innerHTML= showGroup
+    ? '<span><i style="background:var(--shot)"></i>탄착점</span>'
+      +'<span><i style="background:var(--lane)"></i>평균탄착점(MPI)</span>'
+      +'<span><i style="background:transparent;border:1.5px dashed var(--ink40)"></i>탄착군 범위</span>'
+    : '<span><i style="background:var(--shot)"></i>탄착점</span>';
+  const sum=sh.reduce((a,b)=>a+b.score,0);
+  document.getElementById('shN').textContent=sh.length;
+  document.getElementById('shSum').textContent=sum;
+  document.getElementById('shAvg').textContent=sh.length?(sum/sh.length).toFixed(1):'–';
+  document.getElementById('shList').innerHTML=sh.map(s=>
+    `<li class="${s.miss?'miss':''}"><span class="no">${s.no}발</span>`+
+    `<span class="pos">x ${s.x.toFixed(1)} · y ${s.y.toFixed(1)} mm</span>`+
+    `<span class="sc">${s.miss?'이탈':s.score+'점'}</span></li>`).join('');
+}
+
+/* ===================== AI 코칭 ===================== */
+function renderCoach(){
+  if(GROUP!=='E') return;
+  const st=stuOf(STU), r=roundOf(st,SES); if(!r) return;
+  const m=r.m, sh=r.shots;
+  drawTarget(document.getElementById('coachSvg'), sh.filter(s=>!s.miss), {group:true});
+  document.getElementById('cAvg').textContent=m.avg.toFixed(1);
+  document.getElementById('cGrp').innerHTML=Math.round(m.grp)+'<small>mm</small>';
+  document.getElementById('cMpi').textContent=`${m.mpiClock} ${Math.round(m.mpiDev)}mm`;
+
+  const h=history(st,SES);
+  const d=diagnose(m,{seen:h.seen, session:+SES, basics:h.basics});
+  const g=praise(m,sh);
+
+  document.getElementById('cGoodT').textContent=g.title;
+  document.getElementById('cGoodB').textContent=g.body;
+
+  document.getElementById('cTitle').textContent=d.title;
+  document.getElementById('cBody').textContent=d.body;
+  document.getElementById('cVariant').innerHTML=
+    `<span class="tag">진단 ${d.code}</span> 같은 진단에 준비된 표현 <b>${d.variants}가지</b> 중 `+
+    `<b>${d.variant}번째</b>입니다 — 회차마다 다른 설명이 나갑니다`;
+
+  const prevR = h.prevSession ? roundOf(st,h.prevSession) : null;
+  const cp = prevR ? compare(m,{session:prevR.session,avg:prevR.avg,grp_mm:prevR.grp_mm,mpi_dev_mm:prevR.mpi_dev_mm}) : null;
+  if(cp){
+    document.getElementById('cPrevT').textContent=cp.title;
+    document.getElementById('cPrevB').textContent=cp.body;
+    const sign=(v,inv)=>{ const good=inv?v<0:v>0; return v===0?'':`<span style="color:${good?'var(--gain)':'var(--shot)'}">${v>0?'▲':'▼'}</span>`; };
+    document.getElementById('cPrevStats').innerHTML=
+      `<div><dt>평균</dt><dd style="font-size:16px">${prevR.avg.toFixed(1)}→${m.avg.toFixed(1)} ${sign(+cp.delta.avg.toFixed(1),false)}</dd></div>`+
+      `<div><dt>탄착군</dt><dd style="font-size:16px">${Math.round(prevR.grp_mm)}→${Math.round(m.grp)} ${sign(Math.round(cp.delta.grp),true)}</dd></div>`+
+      `<div><dt>편향</dt><dd style="font-size:16px">${Math.round(prevR.mpi_dev_mm)}→${Math.round(m.mpiDev)} ${sign(Math.round(cp.delta.dev),true)}</dd></div>`;
+  } else {
+    document.getElementById('cPrevT').textContent='이번이 첫 기록입니다';
+    document.getElementById('cPrevB').textContent='다음 회차부터 지난 결과와 무엇이 달라졌는지 함께 보여 드립니다. 오늘 수치를 기준으로 삼으십시오.';
+    document.getElementById('cPrevStats').innerHTML='';
+  }
+
+  const bc=document.getElementById('cBasic');
+  const drills=d.drills.slice();
+  if(d.basic){
+    bc.style.display='';
+    document.getElementById('cBasicNo').textContent=`${d.basicIdx}/${d.basicN}`;
+    document.getElementById('cBasicT').textContent=d.basic.t;
+    document.getElementById('cBasicB').textContent=d.basic.b;
+    d.basic.d.forEach(k=>{ if(drills.indexOf(k)<0) drills.push(k); });
+  } else bc.style.display='none';
+  document.getElementById('cDrill').innerHTML=drills.map(k=>
+    `<li><span class="k">${k}</span><span><b>${DRILLS[k][0]}</b> — ${DRILLS[k][1]}</span></li>`).join('');
+}
+
+/* ===================== 기록 ===================== */
+function renderRecord(){
+  const st=stuOf(STU);
+  const pre=shotsOf(st,'1').filter(s=>!s.miss);
+  const now=shotsOf(st,SES).filter(s=>!s.miss);
+  const g=document.getElementById('recSvg');
+  const showGroup = GROUP==='E';
+  if(recMode==='pre') drawTarget(g,pre,{small:true,color:'#6B7480',group:showGroup});
+  else if(recMode==='post') drawTarget(g,now,{small:true,group:showGroup});
+  else { drawTarget(g,pre,{small:true,color:'#6B7480',fade:true});
+    const c=g.innerHTML; drawTarget(g,now,{small:true}); g.innerHTML=c+g.innerHTML.replace(/^<rect[^>]*>/,''); }
+
+  const rs=sessionList(st).map(s=>roundOf(st,s));
+  const first=rs.find(r=>r.session===1), last=rs[rs.length-1];
+  const dv=document.getElementById('recDelta');
+  let html='';
+  if(first&&last&&first!==last){
+    html+=`<div class="delta"><div><div class="l">사전 평균</div><div class="v">${first.avg.toFixed(1)}</div></div>`+
+      `<div class="a">→</div><div style="text-align:right"><div class="l">최근 평균</div>`+
+      `<div class="v ${last.avg>=first.avg?'up':''}">${last.avg.toFixed(1)}</div></div></div>`;
+    if(showGroup)
+      html+=`<div class="delta"><div><div class="l">사전 탄착군</div><div class="v">${Math.round(first.grp_mm)}<small style="font-size:11px"> mm</small></div></div>`+
+        `<div class="a">→</div><div style="text-align:right"><div class="l">최근 탄착군</div>`+
+        `<div class="v ${last.grp_mm<=first.grp_mm?'up':''}">${Math.round(last.grp_mm)}<small style="font-size:11px"> mm</small></div></div></div>`;
+  } else html='<p class="note">회차가 쌓이면 사전·사후 비교가 표시됩니다.</p>';
+  dv.innerHTML=html;
+
+  const L=34,Rr=8,T=12,B=26,W=320,H=150;
+  const vals=rs.map(r=>({s:r.session,v:r.avg}));
+  let ch='';
+  if(vals.length>=2){
+    const lo=Math.max(0,Math.min(...vals.map(v=>v.v))-1), hi=Math.min(CFG.rings,Math.max(...vals.map(v=>v.v))+1);
+    const x=i=>L+i*(W-L-Rr)/(vals.length-1), y=v=>T+(hi-v)/Math.max(.1,hi-lo)*(H-T-B);
+    [lo,(lo+hi)/2,hi].forEach(v=>{
+      ch+=`<line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W-Rr}" y2="${y(v).toFixed(1)}" stroke="rgba(18,22,29,.1)"/>`;
+      ch+=`<text x="4" y="${(y(v)+3.5).toFixed(1)}" font-size="9" fill="rgba(18,22,29,.4)" font-family="monospace">${v.toFixed(1)}</text>`; });
+    ch+=`<path d="${vals.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(v.v).toFixed(1)).join(' ')}" fill="none" stroke="#17A67C" stroke-width="2.5" stroke-linejoin="round"/>`;
+    vals.forEach((v,i)=>{ ch+=`<circle cx="${x(i).toFixed(1)}" cy="${y(v.v).toFixed(1)}" r="3" fill="#17A67C"/>`;
+      ch+=`<text x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="9" fill="rgba(18,22,29,.4)" font-family="monospace">${v.s}</text>`; });
+  } else ch=`<text x="160" y="80" text-anchor="middle" font-size="11" fill="rgba(18,22,29,.4)">회차가 2개 이상이면 그래프가 표시됩니다</text>`;
+  document.getElementById('recChart').innerHTML=ch;
+}
+document.getElementById('recSw').addEventListener('click',ev=>{
+  const b=ev.target.closest('button'); if(!b) return;
+  recMode=b.dataset.m;
+  [...ev.currentTarget.children].forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  renderRecord();
+});
+
+/* ===================== 랭킹 ===================== */
+function renderRank(){
+  const arr=DATA.students.map(st=>{
+    const best=Math.max(...sessionList(st).map(s=>roundOf(st,s).avg));
+    return {id:st.id,nick:st.label,avg:best};
+  }).sort((a,b)=>b.avg-a.avg);
+  document.getElementById('rkList').innerHTML=arr.map((a,i)=>
+    `<li class="${a.id===STU?'me':''}"><span class="p">${i+1}</span>`+
+    `<span class="nm">${a.nick}</span><span class="sc">${a.avg.toFixed(1)}</span></li>`).join('');
+}
+
+/* ===================== 요약표 ===================== */
+function renderCmp(){
+  document.getElementById('cmpBody').innerHTML=CMP_ROWS.map(([k,e,c])=>
+    `<tr><td>${k}</td><td class="c">${e?'✅':'—'}</td><td class="c">${c?'✅':'—'}</td></tr>`).join('');
+}
+
+/* ===================== 전체 갱신 ===================== */
+function renderAll(){
+  const st=stuOf(STU);
+  buildSesSelect();
+  document.getElementById('diffBox').innerHTML=DIFF[GROUP];
+  [...document.getElementById('gSwitch').children].forEach(b=>
+    b.setAttribute('aria-pressed',String(b.dataset.g===GROUP)));
+  document.getElementById('stWho').textContent=st.label;
+  const gTag = GROUP==='E' ? '<span class="tag e">실험집단</span>' : '<span class="tag c">비교집단</span>';
+  const demo = SES==='1' ? '' : ' <span class="tag mid">예시 자료</span>';
+  document.getElementById('stMeta').innerHTML=`${SES}회차 · ${gTag}${demo}`;
+  const n=shotsOf(st,SES).length;
+  document.getElementById('stProg').textContent=`${n}/${CFG.perRound}`;
+  buildTabs();
+  renderShoot(); renderCoach(); renderRecord(); renderRank();
+  goTab(curTab);
+}
+document.getElementById('gSwitch').addEventListener('click',ev=>{
+  const b=ev.target.closest('button'); if(!b) return;
+  GROUP=b.dataset.g; renderAll();
+});
+document.getElementById('stTabs').addEventListener('click',ev=>{
+  const b=ev.target.closest('button'); if(b) goTab(b.dataset.t);
+});
+document.getElementById('selStu').addEventListener('change',ev=>{
+  STU=ev.target.value; const l=sessionList(stuOf(STU));
+  if(l.indexOf(SES)<0) SES=l[0];
+  renderAll();
+});
+document.getElementById('selSes').addEventListener('change',ev=>{ SES=ev.target.value; renderAll(); });
+
+buildStuSelect(); renderCmp(); renderAll();
+</script>
+</body>
+</html>
