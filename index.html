@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v3.5</title>
+<title>샷라인 SHOTLINE v3.6</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -724,7 +724,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
 <script>
 "use strict";
 /* ==========================================================================
-   샷라인 학생·교사 앱 v3.5 (2026-08-03)
+   샷라인 학생·교사 앱 v3.6 (2026-08-10)
    --------------------------------------------------------------------------
    설계 원칙
      · 집단은 '태블릿 설정'이 아니라 '학생 명부'에서 판정한다
@@ -1971,7 +1971,9 @@ function tick(){
     const img=grabROI();
     // 임계값을 아주 낮춰 '무엇이든 보이는가'를 먼저 확인한다
     /* 잡음과 신호를 같은 잣대로 재야 합니다 — 면적 조건을 실제 검출과 똑같이 둡니다 */
-    const R=detect(img,E.bg,E.pw,E.ph,25,25,minAEff(),CFG.maxA,9999);
+    /* thC=-1 : 색을 '재기만' 하고 판정에는 쓰지 않습니다.
+       예전에는 9999(색 경로 끔)를 넘겨서 붉은 정도가 항상 0으로 표시됐습니다. */
+    const R=detect(img,E.bg,E.pw,E.ph,25,25,minAEff(),CFG.maxA,-1);
     const pr=E.probe; pr.frames++;
     if(R.stats.aeMag!=null) pr.aeMax=Math.max(pr.aeMax||0,R.stats.aeMag);
     if(R.stats.flood) pr.floodF=(pr.floodF||0)+1;
@@ -2123,7 +2125,7 @@ function drawRaw(){
   if(rawCv.width!==w||rawCv.height!==h){ rawCv.width=w; rawCv.height=h; }
   const out=rawCtx.createImageData(w,h), o=out.data;
   /* 검출과 똑같은 계산을 거친 값을 그대로 보여줍니다 (정합 필터 + 잡음 대비 환산) */
-  const RR=detect(img,E.bg,w,h,9999,9999,minAEff(),CFG.maxA,9999);
+  const RR=detect(img,E.bg,w,h,9999,9999,minAEff(),CFG.maxA,-1);
   const ae=RR.stats.ae||{r:0,g:0,b:0};
   const zz=MB.z;
   let mx=0, mxi=-1;
