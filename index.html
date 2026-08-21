@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v3.8</title>
+<title>샷라인 SHOTLINE v3.9</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -293,7 +293,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
     <button class="ghost sm" data-fit="auto" data-tune>링에 맞추기</button>
     <button class="sm" id="fsDone">완료</button>
     <button class="sm" id="fsKeep" style="display:none">이대로 쓰기</button>
-    <button class="ghost sm" id="fsRescan" style="display:none">다시 찾기</button>
+    <button class="ghost sm" id="fsRescan" style="display:none">다시 맞추기</button>
   </div>
 </div>
 
@@ -493,7 +493,7 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
       <div id="stageHostT" style="margin:10px 0"></div>
       <div class="row" style="margin-top:9px">
         <button id="tcCam">카메라 시작</button>
-        <button class="ghost" id="tcAuto" disabled>표적 자동 맞추기</button>
+        <button class="ghost" id="tcAuto" disabled>표적 맞추기</button>
         <button class="ghost" id="tcBg" disabled>배경 학습</button>
       </div>
       <div class="row" style="margin-top:7px">
@@ -1330,13 +1330,13 @@ async function startCamera(){
   // 저장된 캘리브레이션 복원
   const q=load('sl.quad',null);
   if(!q){
-    log('저장된 표적 위치가 없습니다 — [표적 자동 맞추기]를 한 번 하십시오.');
+    log('저장된 표적 위치가 없습니다 — [표적 맞추기]를 한 번 하십시오.');
   }else{
     /* ★ 해상도가 달라도 버리지 않습니다 ★
        카메라가 1080×1920 으로 열릴 때도 있고 720×1280 으로 열릴 때도 있습니다.
        예전에는 저장된 값과 크기가 조금이라도 다르면 통째로 버려서, 교사가 보기에는
        '아무 것도 안 나타나는' 상태가 되었습니다. 화면 비율이 같으면 배율만 맞춰
-       그대로 씁니다. 어긋나면 [표적 자동 맞추기]에서 손보면 됩니다. */
+       그대로 씁니다. 어긋나면 [표적 맞추기]에서 손보면 됩니다. */
     const k = (q.vw&&q.vh) ? E.vw/q.vw : 1;
     const kh = (q.vw&&q.vh) ? E.vh/q.vh : 1;
     const same = q.vw===E.vw && q.vh===E.vh;
@@ -1356,7 +1356,7 @@ async function startCamera(){
           log('저장된 표적 위치를 복원했습니다'+(same?'':` · 해상도 차이 보정`)+'. 배경 학습만 하십시오.');
       }
     }else{
-      log(`저장된 표적은 ${q.vw}×${q.vh} 기준인데 지금 카메라는 ${E.vw}×${E.vh} 입니다 — [표적 자동 맞추기]를 다시 하십시오.`);
+      log(`저장된 표적은 ${q.vw}×${q.vh} 기준인데 지금 카메라는 ${E.vw}×${E.vh} 입니다 — [표적 맞추기]를 다시 하십시오.`);
     }
   }
   /* 자동(타원) 방식으로 저장된 것은 E.quad 가 비어 있습니다. 예전에는 이걸 보고
@@ -1465,6 +1465,20 @@ function tuneFS(on){
    이 모드는 영상을 전혀 분석하지 않습니다. 화면에 그려진 초록 링을 손가락으로
    끌어 옮기고 단추로 크기·기울기를 맞추기만 합니다. 실패할 수가 없습니다. */
 const MAN={cx:0,cy:0,a:0,asp:1,rot:0};
+/* ★ v3.9 ★ 처음 그려지는 링의 크기
+   예전 기본값은 vw*0.05 이었습니다. 1080폭 화면에서 흑심 반지름 54px 입니다.
+   그런데 2026-08-21 현장 진단을 보면 실제 표적은 폭 817px 로 잡혀 있었고,
+   그때 필요한 흑심 반지름은 817*0.4/2 = 163px 였습니다. 3배 차이라
+   [크게]를 19번 눌러야 겨우 맞는 상태였습니다.
+   짧은 변의 15%가 정확히 그 163px 이고, 짧은 변을 쓰므로 태블릿을 세로로
+   두든 가로로 두든 같은 값이 나옵니다. 오차 1% — 사실상 그대로 쓰면 됩니다.
+   그리고 한 번 맞춰 [완료]를 누르면 그 비율을 기억해 다음부터 그 값으로 시작합니다. */
+function manDefaultA(){
+  const shortSide = Math.min(E.vw||1080, E.vh||1080);
+  const r = +load('sl.manR', 0);
+  const ratio = (r>0.02 && r<0.45) ? r : 0.15;
+  return shortSide * ratio;
+}
 function applyManual(){
   const a=Math.max(3,MAN.a), b=Math.max(3,MAN.a*MAN.asp);
   const cov={a:a*a/4, b:0, c:b*b/4};
@@ -1474,24 +1488,25 @@ function applyManual(){
   E.H=affineFromEllipse(cov,MAN.cx,MAN.cy,(CFG.dia*CFG.blackRatio)/2,MAN.rot);
   finalizeTransform();
   const inf=document.getElementById('fsInfo');
-  if(inf) inf.textContent=`흑심 반지름 ${a.toFixed(0)}px · 기울기 ${(MAN.asp*100).toFixed(0)}% · 회전 ${MAN.rot}° · ${E.mmPerPx.toFixed(2)} mm/px`;
+  if(inf) inf.textContent=`흑심 반지름 ${a.toFixed(0)}px · 기울기 ${(MAN.asp*100).toFixed(0)}% · 회전 ${MAN.rot}° · `
+    +`${E.mmPerPx.toFixed(2)} mm/px · 표적 지름 설정 ${CFG.dia}mm`;
 }
 function beginManual(){
   if(!E.vw){ alert('먼저 카메라를 시작하십시오.'); return; }
   SCAN.on=false; E.mode='manual';
   const d=E.fitDisc;
   MAN.cx = d?d.cx:E.vw/2; MAN.cy = d?d.cy:E.vh/2;
-  MAN.a  = d?Math.max(6,(d.rmin+d.rmax)/2):Math.max(8,E.vw*0.05);
+  MAN.a  = d?Math.max(6,(d.rmin+d.rmax)/2):Math.max(8,manDefaultA());
   MAN.asp= 1; MAN.rot=0;
   applyManual();
   document.getElementById('tcBg').disabled=false;
-  showHint('<b>초록 링을 인쇄된 링에 맞추십시오</b><em>화면을 끌어 옮기고 · 아래 단추로 크기·기울기를 맞춘 뒤 [완료]</em>');
+  showHint('<b>초록 링을 인쇄된 링에 맞추십시오</b><em>화면을 끌어 옮기고 · [크게]·[작게]는 꾹 누르면 계속 커집니다 · 다 맞추면 [완료]</em>');
   if(!document.body.classList.contains('fs')) enterFS();
   manUI(); updReady();
 }
 function applyMan(k){
-  if(k==='m-') MAN.a*=0.94;
-  else if(k==='m+') MAN.a*=1.06;
+  if(k==='m-') MAN.a*=0.92;
+  else if(k==='m+') MAN.a*=1.087;
   else if(k==='ma-') MAN.asp=Math.max(0.35,MAN.asp-0.04);
   else if(k==='ma+') MAN.asp=Math.min(1.8,MAN.asp+0.04);
   else if(k==='mr-') MAN.rot-=3;
@@ -1521,13 +1536,16 @@ function beginAutoFit(){
   if(E.H){
     SCAN.on=false; E.mode='idle';
     enterFS(); keepUI(true);
-    showHint('<b>표적이 이대로 맞습니까?</b><em>초록 링이 표적 링과 겹쳐 있으면 [이대로 쓰기] · 어긋나 있으면 [다시 찾기]</em>');
+    showHint('<b>표적이 이대로 맞습니까?</b><em>초록 링이 표적 링과 겹쳐 있으면 [이대로 쓰기] · 어긋나 있으면 [다시 맞추기]</em>');
     const inf=document.getElementById('fsInfo');
     if(inf) inf.textContent=`크기 ${(E.fitScale*100).toFixed(0)}% · 회전 ${E.fitRot.toFixed(0)}° · ${E.mmPerPx.toFixed(2)} mm/px`;
     badge.textContent='표적 확인 중';
     updReady(); updFitUI(); return;
   }
-  restartScan();
+  /* ★ v3.9 ★ 자동 탐색을 거치지 않고 바로 손으로 맞추기로 갑니다.
+     현장에서 자동 인식이 한 번도 성공하지 못했고, 8번(약 5초) 헛돌다가
+     어차피 손으로 맞추기로 넘어가고 있었습니다. 그 5초를 없앱니다. */
+  beginManual();
 }
 /* 처음부터 다시 찾기 (표적을 바꿨거나 태블릿을 옮겼을 때) */
 function restartScan(){
@@ -3676,6 +3694,9 @@ document.getElementById('fsApprove').addEventListener('click',approveScan);
 document.getElementById('fsManual').addEventListener('click',beginManual);
 document.getElementById('fsManDone').addEventListener('click',()=>{
   E.mode='idle';
+  /* 다음에 맞출 때 이 크기에서 시작하도록 비율로 기억합니다 */
+  const ss=Math.max(1,Math.min(E.vw||1080,E.vh||1080));
+  save('sl.manR', MAN.a/ss);
   save('sl.quad',{vw:E.vw,vh:E.vh,fit:'auto',H:E.H,disc:E.fitDisc});
   document.getElementById('tcBg').disabled=false;
   badge.textContent='표적 지정 완료';
@@ -3686,6 +3707,34 @@ document.getElementById('fsBar').addEventListener('click',ev=>{
   const b=ev.target.closest('button[data-man]'); if(!b) return;
   applyMan(b.dataset.man);
 });
+/* ★ v3.9 ★ 크기·기울기 단추를 꾹 누르고 있으면 계속 반복합니다.
+   예전에는 링을 세 배로 키우려면 [크게]를 열아홉 번 눌러야 했습니다.
+   기본 크기를 고쳐 이제는 거의 누를 일이 없지만, 표적을 바꾸거나 태블릿을
+   옮겨 크게 벗어났을 때를 위해 남겨 둡니다. 0.3초 누르고 있으면 반복 시작. */
+(function(){
+  const bar=document.getElementById('fsBar');
+  if(!bar) return;
+  let holdT=null, holdI=null;
+  function stopHold(){
+    if(holdT){ clearTimeout(holdT); holdT=null; }
+    if(holdI){ clearInterval(holdI); holdI=null; }
+  }
+  bar.addEventListener('pointerdown',ev=>{
+    const b=ev.target.closest('button[data-man],button[data-fit]');
+    if(!b) return;
+    const man=b.dataset.man, fit=b.dataset.fit;
+    if(fit==='auto') return;                 // '링에 맞추기'는 한 번만
+    stopHold();
+    holdT=setTimeout(()=>{
+      holdI=setInterval(()=>{
+        try{ if(man) applyMan(man); else if(fit) applyFit(fit); }catch(e){ stopHold(); }
+      },60);
+    },320);
+  });
+  ['pointerup','pointercancel','pointerleave'].forEach(t=>bar.addEventListener(t,stopHold));
+  window.addEventListener('pointerup',stopHold);
+  window.addEventListener('blur',stopHold);
+})();
 document.getElementById('fsZoomIn').addEventListener('click',()=>camZoom(+1));
 document.getElementById('fsZoomOut').addEventListener('click',()=>camZoom(-1));
 document.getElementById('fsTap').addEventListener('click',beginTapFit);
@@ -3695,7 +3744,7 @@ document.getElementById('fsKeep').addEventListener('click',()=>{
   log('저장된 표적 위치를 그대로 사용합니다.');
   updReady(); updFitUI();
 });
-document.getElementById('fsRescan').addEventListener('click',()=>{ hideHint(); restartScan(); });
+document.getElementById('fsRescan').addEventListener('click',()=>{ hideHint(); beginManual(); });
 /* 전체 화면의 미세 조정 단추는 교사 화면의 것과 같은 처리를 씁니다 */
 document.getElementById('fsBar').addEventListener('click',ev=>{
   const b=ev.target.closest('button[data-fit]'); if(!b) return;
