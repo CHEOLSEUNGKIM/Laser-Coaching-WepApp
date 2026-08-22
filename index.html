@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v4.0</title>
+<title>샷라인 SHOTLINE v4.1</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -637,6 +637,12 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
             거치 흔들림이 만드는 가짜 점은 밝기로만 나타납니다. 붉은 정도를 함께 보면
             <b>실측 기준 가짜 점이 전부 사라졌습니다.</b> 초록·파랑 레이저를 쓸 때만 끄십시오.</p>
           </div>
+          <div style="flex:1 1 100%;margin-top:4px">
+            <label style="display:flex;align-items:center;gap:7px;font-size:13.5px">
+              <input type="checkbox" id="tcThLock" style="width:18px;height:18px">
+              <span><b>임계값 고정</b> — 배경 학습이 임계값을 덮어쓰지 않음</span></label>
+            <p class="note" id="tcThLockInfo" style="margin:4px 0 0"></p>
+          </div>
           <div style="flex:1 1 45%"><label class="fl">프레임당 최대 덩어리<i>넘으면 그 프레임 폐기</i></label><input type="number" id="tcMaxB" step="1" min="1" max="8"></div>
           <div style="flex:1 1 45%"><label class="fl">회차당 발수</label><input type="number" id="tcPerRound" step="1"></div>
           <div style="flex:1 1 45%"><label class="fl">색 임계값<i>붉은 정도 · 낮을수록 민감</i></label><input type="number" id="tcChroma" step="1" min="6"></div>
@@ -755,6 +761,7 @@ const CFG=Object.assign({
   preset:'lh4',mode:'square',calib:125,dia:125,rings:10,
   perRound:10, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
   redOnly:true, calibratedAt:0, sound:true, soundVol:0.7, missMargin:0.15, chroma:12,
+  thLock:false, thLockAt:0,
   serverUrl:''
 }, load(K.cfg,{}));
 /* ★ 검출 설정 자동 갱신 ★
@@ -1891,8 +1898,10 @@ const ACAL={on:false,t0:0,v:[],c:[]};
 function beginAutoCal(){
   ACAL.on=true; ACAL.t0=performance.now(); ACAL.v=[]; ACAL.c=[];
   E.mode='autocal';
-  badge.textContent='잡음 재는 중… 3초\n표적 앞을 비워 주십시오';
-  log('자동 잡음 보정 시작 (3초) — 쏘지 마십시오');
+  badge.textContent=(CFG.thLock?'임계값 확인 중… 3초':'잡음 재는 중… 3초')+'\n표적 앞을 비워 주십시오';
+  log(CFG.thLock
+    ? '임계값이 고정되어 있습니다 — 덮어쓰지 않고 지금 환경과 맞는지만 3초 확인합니다.'
+    : '자동 잡음 보정 시작 (3초) — 쏘지 마십시오');
   updReady(); refreshFireState();
 }
 function autoCalTick(now){
@@ -1910,7 +1919,6 @@ function autoCalTick(now){
      [신호 측정]을 한 적이 있으면 그때 잰 레이저 세기를 상한으로 씁니다. */
   const _pvT=(E.probe&&(E.probe.red>0||E.probe.lum>0))?E.probe:null;
   const th=Math.round(Math.max(45, Math.min(p95*2, thCap(_pvT, aeUnstable(_pvT)))));
-  CFG.red=th; CFG.lum=th; CFG.calibratedAt=Date.now();
   /* ★ 색 임계값도 함께 정합니다 (아래 C 항목) ★ */
   const ca=ACAL.c.slice().sort((x,y)=>x-y);
   const c95=ca.length? ca[Math.min(ca.length-1,Math.floor(ca.length*0.95))] : 0;
@@ -1935,13 +1943,45 @@ function autoCalTick(now){
   const _pv = (E.probe && E.probe.chroma>0) ? E.probe : null;
   const _want  = Math.round(Math.max(10, Math.min(45, c95*1.6)));
   let _chromaOff = false;
+  let _wantChroma;
   if(_pv){
     const _sig=_pv.chroma||0, _nz=_pv.nc||0;
-    if(_sig <= _nz*1.2){ CFG.chroma = 9999; _chromaOff = true; }
-    else CFG.chroma = Math.max(8, Math.min(_want, Math.round(_sig*0.55)));
+    if(_sig <= _nz*1.2){ _wantChroma = 9999; _chromaOff = true; }
+    else _wantChroma = Math.max(8, Math.min(_want, Math.round(_sig*0.55)));
   } else {
-    CFG.chroma = _want;
+    _wantChroma = _want;
   }
+
+  /* ★★ v4.1 임계값 고정 ★★
+     [신호 측정 → 검증 통과]로 정한 값이나 교사가 손으로 넣은 값은
+     **배경 학습을 다시 해도 덮어쓰지 않습니다.**
+     예전에는 배경 학습이 끝날 때마다 이 자리에서 값이 다시 계산되어,
+     어렵게 맞춰 놓은 임계값이 매번 지워졌습니다. 그래서 수업 준비 때마다
+     [신호 측정]을 처음부터 다시 해야 했습니다.
+     고정된 상태에서도 3초 측정은 그대로 하되, 값을 바꾸는 대신
+     '지금 환경과 맞는지'만 비교해 알려 줍니다. */
+  if(CFG.thLock){
+    E.acalWould={th:th, chroma:_wantChroma, p95:p95, c95:c95, at:Date.now()};
+    badge.textContent='준비 완료';
+    const risky = th > CFG.red*1.4;          // 잡음이 늘어 지금 값이 낮아졌을 수 있다
+    const wasteful = th*1.6 < CFG.red;       // 잡음이 줄어 지금 값이 필요 이상으로 높다
+    log(`임계값 고정 유지: 적색 ${CFG.red} · 색 ${CFG.chroma>=900?'끔':CFG.chroma}`
+       +`  (지금 잡음 기준이라면 ${th} / 색 ${_wantChroma>=900?'끔':_wantChroma})`);
+    if(risky){
+      log(`⚠ 배경 잡음이 고정할 때보다 커졌습니다 (권장 ${th} > 지금 ${CFG.red}). `
+         +`유령 탄착이 나오면 [신호 측정]을 다시 해 주십시오.`);
+      badge.textContent='준비 완료 — 잡음이 커졌습니다\n유령 탄착이 나오면 신호 측정을 다시';
+    } else if(wasteful){
+      log(`ℹ 잡음이 줄었습니다 — 임계값을 ${th} 까지 낮추면 약한 발도 잡힙니다. `
+         +`지금 값(${CFG.red})으로도 문제는 없습니다.`);
+    }
+    if(document.getElementById('tcBody').style.display!=='none') refreshTeacher();
+    updReady(); refreshFireState();
+    return;
+  }
+
+  CFG.red=th; CFG.lum=th; CFG.calibratedAt=Date.now();
+  CFG.chroma=_wantChroma;
   saveCfg();
   badge.textContent='준비 완료';
   log(`자동 보정 완료: 잡음 상위 ${p95.toFixed(0)} → 임계값 ${th} · 색 잡음 ${c95.toFixed(0)} → 색 임계값 ${_chromaOff?'끔':CFG.chroma}`);
@@ -3654,12 +3694,44 @@ function refreshTeacher(){
   if(kb>3000) log('⚠ 저장공간이 3MB를 넘었습니다. CSV로 내보낸 뒤 정리하십시오.');
   document.getElementById('tcRoster').value=ROSTER.students.map(s=>
     `${s.cls},${s.num},${s.nick},${s.ov}`).join('\n');
+  updThLock();
   updReady();
 }
 { const cb=document.getElementById('tcRedOnly');
   cb.checked=CFG.redOnly!==false; RED_AND=cb.checked;
   cb.addEventListener('change',()=>{ CFG.redOnly=cb.checked; RED_AND=cb.checked; saveCfg();
     log('붉은빛 판별 '+(cb.checked?'켬':'끔')); }); }
+/* ★ v4.1 임계값 고정 ★ */
+function updThLock(){
+  const cb=document.getElementById('tcThLock'), inf=document.getElementById('tcThLockInfo');
+  if(!cb||!inf) return;
+  cb.checked=!!CFG.thLock;
+  const c=(CFG.chroma>=900)?'끔':CFG.chroma;
+  if(CFG.thLock){
+    const d=CFG.thLockAt?new Date(CFG.thLockAt):null;
+    const when=d?`${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`:'';
+    let h=`<b>고정됨</b> — 적색 ${CFG.red} · 밝기 ${CFG.lum} · 색 ${c}`+(when?` <span class="muted">(${when} 확정)</span>`:'')
+      +`<br>배경 학습을 다시 해도 이 값이 유지됩니다. <b>신호 측정을 매번 하실 필요가 없습니다.</b>`;
+    const w=E.acalWould;
+    if(w){
+      h+=`<br><span class="muted">가장 최근 배경 학습 때 잰 잡음 기준이라면 ${w.th} / 색 ${w.chroma>=900?'끔':w.chroma} 입니다`;
+      if(w.th>CFG.red*1.4) h+=` — <b style="color:var(--shot)">잡음이 커졌습니다. 유령 탄착이 나오면 신호 측정을 다시 하십시오.</b>`;
+      else if(w.th*1.6<CFG.red) h+=` — 잡음이 줄었습니다. 낮추면 약한 발도 잡힙니다.`;
+      h+=`</span>`;
+    }
+    inf.innerHTML=h;
+  } else {
+    inf.innerHTML=`<b>자동</b> — 배경 학습이 끝날 때마다 임계값을 다시 계산합니다 (현재 적색 ${CFG.red} · 색 ${c}).`
+      +`<br><b>[신호 측정 → 검증 통과]</b>를 하거나 임계값을 손으로 넣으면 자동으로 고정됩니다.`;
+  }
+}
+{ const cb=document.getElementById('tcThLock');
+  cb.addEventListener('change',()=>{
+    CFG.thLock=cb.checked; if(cb.checked) CFG.thLockAt=Date.now();
+    saveCfg(); updThLock();
+    log('임계값 '+(cb.checked?`고정 (적색 ${CFG.red} · 색 ${CFG.chroma>=900?'끔':CFG.chroma})`
+                            :'자동으로 되돌림 — 다음 배경 학습에서 다시 계산됩니다'));
+  }); }
 document.getElementById('tcPreset').addEventListener('change',ev=>{
   const p=PRESETS[ev.target.value];
   CFG.preset=ev.target.value;
@@ -3676,6 +3748,10 @@ document.getElementById('tcPreset').addEventListener('change',ev=>{
     const v=parseFloat(ev.target.value);
     if(!isFinite(v)||v<=0) return;
     CFG[k]=v;
+    /* ★ v4.1 ★ 임계값을 손으로 넣었다면 그것이 교사의 결정입니다 —
+       배경 학습이 덮어쓰지 못하게 함께 고정합니다. */
+    if(['red','lum','chroma'].indexOf(k)>=0){ CFG.thLock=true; CFG.thLockAt=Date.now();
+      setTimeout(updThLock,0); }
     // 표적 규격을 바꾼 경우에만 프리셋을 '직접 입력'으로 돌린다
     if(['calib','dia','rings','blackRatio'].indexOf(k)>=0) CFG.preset='custom';
     saveCfg();
@@ -3985,10 +4061,15 @@ function endVerify(ok){
   const adv=document.getElementById('pvAdvice');
   badge.textContent='준비 완료';
   if(ok){
+    /* ★ v4.1 ★ 검증까지 통과한 값은 고정합니다 — 다음에 배경 학습을 다시 해도
+       덮어쓰지 않습니다. 이 한 줄이 '수업 때마다 신호 측정을 다시 하는' 일을 없앱니다. */
+    CFG.thLock=true; CFG.thLockAt=Date.now(); saveCfg();
     adv.innerHTML=`<span class="tag ok">검증 통과</span> 3초 동안 유령 탄착 <b>0건</b>. `
-      +`임계값 <b>적색 ${CFG.red} · 밝기 ${CFG.lum}</b> 로 확정했습니다.<br>`
+      +`임계값 <b>적색 ${CFG.red} · 밝기 ${CFG.lum} · 색 ${CFG.chroma>=900?'끔':CFG.chroma}</b> 로 확정했습니다.<br>`
+      +`<b>이 값은 고정되었습니다.</b> 다음부터는 배경 학습을 다시 해도 지워지지 않으므로, `
+      +`<b>신호 측정을 매번 하실 필요가 없습니다.</b><br>`
       +`이제 <b>테스트 사격</b>으로 실제 레이저가 잡히는지 확인하십시오.`;
-    log(`임계값 검증 통과: 적색 ${CFG.red} · 밝기 ${CFG.lum}`);
+    log(`임계값 검증 통과 · 고정함: 적색 ${CFG.red} · 밝기 ${CFG.lum} · 색 ${CFG.chroma>=900?'끔':CFG.chroma}`);
   } else {
     adv.innerHTML=`<span class="tag bad">검증 실패</span> 임계값을 ${VF.round}번 올렸는데도 유령 탄착이 사라지지 않습니다.<br>`
       +`잡음이 너무 큽니다. <b>조명을 낮추거나</b>, <b>태블릿 고정을 단단히</b> 하거나, `
