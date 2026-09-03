@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v4.1</title>
+<title>샷라인 SHOTLINE v4.2</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -350,8 +350,9 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
     <div class="card" style="padding:10px">
       <div id="stageHostS"></div>
       <div class="row" id="stCtl" style="margin-top:9px">
-        <button class="big" id="btnFire" style="flex:2 1 60%">사격 시작</button>
-        <button class="ghost" id="btnUndo" style="flex:1 1 30%" disabled>직전 발 취소</button>
+        <button class="big" id="btnFire" style="flex:2 1 44%">사격 시작</button>
+        <button class="ghost" id="btnMiss" style="flex:1 1 26%" disabled>표적 밖 0점</button>
+        <button class="ghost" id="btnUndo" style="flex:1 1 26%" disabled>직전 발 취소</button>
       </div>
       <dl class="stats" id="shStats">
         <div><dt>발수</dt><dd id="shN">0</dd></div>
@@ -471,6 +472,24 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
       <p class="note" style="margin-top:6px">기록은 이 태블릿 안에만 있습니다.
       <b>아이패드는 7일 동안 앱을 열지 않으면 저장 데이터를 지웁니다.</b>
       수업이 끝나면 이 단추 하나만 눌러 주십시오 — 파일 세 개가 차례로 내려받아집니다.</p>
+    </div>
+
+    <div class="card" id="tcSrvCard">
+      <h2>전체 순위 연동 <span class="tag" id="srvTag">꺼짐</span></h2>
+      <p class="note" style="margin-top:0">비워 두면 <b>지금까지와 똑같이</b> 이 태블릿 기록만 씁니다.
+      주소를 넣으면 회차가 끝날 때마다 <b>요약(학급·번호·별명·평균)만</b> 올려 학급·학년 전체 순위를 만듭니다.
+      <b>발 하나하나의 좌표는 올리지 않습니다</b> — 연구 자료는 지금처럼 CSV로만 내보냅니다.</p>
+      <div class="grid2" style="margin-top:8px">
+        <div style="flex:1 1 100%"><label class="fl">서버 주소<i>Apps Script 웹앱 /exec 주소</i></label>
+          <input type="text" id="tcSrvUrl" placeholder="https://script.google.com/macros/s/…/exec"></div>
+        <div style="flex:1 1 100%"><label class="fl">공유 열쇠<i>4대 태블릿과 스크립트에 같은 값을 넣으십시오</i></label>
+          <input type="text" id="tcSrvKey" placeholder="예: shotline-2026"></div>
+      </div>
+      <div class="row" style="margin-top:9px">
+        <button class="ghost" id="tcSrvTest">연결 시험</button>
+        <button class="ghost" id="tcSrvPush">지금 올리기</button>
+      </div>
+      <p class="note" id="tcSrvState" style="margin-top:7px"></p>
     </div>
 
     <div class="card">
@@ -629,6 +648,11 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
           <div style="flex:1 1 45%"><label class="fl">최소 면적(px)</label><input type="number" id="tcMinA" step="1" min="1"></div>
           <div style="flex:1 1 45%"><label class="fl">확정 프레임 수<i>2 이상이면 잡음에 강함</i></label><input type="number" id="tcMinF" step="1" min="1" max="6"></div>
           <div style="flex:1 1 45%"><label class="fl">재격발 대기(ms)</label><input type="number" id="tcCool" step="50" min="100"></div>
+          <div style="flex:1 1 100%">
+            <label class="fl">표적 밖 감지 범위<i>표적 반지름의 몇 배까지 볼지 · 0.45 = 1.45배</i></label>
+            <input type="number" id="tcMargin" step="0.05" min="0" max="1.2">
+            <p class="note" id="tcMarginInfo" style="margin:4px 0 0"></p>
+          </div>
           <div style="flex:1 1 100%;margin-top:4px">
             <label style="display:flex;align-items:center;gap:7px;font-size:13.5px">
               <input type="checkbox" id="tcRedOnly" style="width:18px;height:18px">
@@ -741,7 +765,8 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
    ========================================================================== */
 
 /* ===================== 저장 ===================== */
-const K={roster:'sl.roster',lock:'sl.lock',cfg:'sl.cfg',shots:'sl.shots',rounds:'sl.rounds',pin:'sl.pin',saved:'sl.saved'};
+const K={roster:'sl.roster',lock:'sl.lock',cfg:'sl.cfg',shots:'sl.shots',rounds:'sl.rounds',pin:'sl.pin',saved:'sl.saved',
+         outbox:'sl.outbox',rank:'sl.rankcache'};
 function load(k,d){ try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;} }
 function save(k,v){ try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(e){
   log('⚠ 저장 실패: '+e.message+' — 저장공간이 찼을 수 있습니다. CSV로 내보낸 뒤 정리하십시오.');return false;} }
@@ -761,8 +786,8 @@ const CFG=Object.assign({
   preset:'lh4',mode:'square',calib:125,dia:125,rings:10,
   perRound:10, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
   redOnly:true, calibratedAt:0, sound:true, soundVol:0.7, missMargin:0.15, chroma:12,
-  thLock:false, thLockAt:0,
-  serverUrl:''
+  thLock:false, thLockAt:0, mgV2:0,
+  serverUrl:'', serverKey:''
 }, load(K.cfg,{}));
 /* ★ 검출 설정 자동 갱신 ★
    검출 방식을 바꾸면 예전 임계값은 뜻이 달라집니다. 그런데 설정은 기기에 저장돼
@@ -780,6 +805,15 @@ const ENGINE_VER=8;
   save(K.cfg,CFG);
   setTimeout(()=>log('검출 방식이 새로워져 관련 설정을 기본값으로 되돌렸습니다 '
     +`(이전: 임계 ${before.red}·최소면적 ${before.minA}·확정프레임 ${before.minF}).`),300);
+})();
+/* ★ v4.2 일회성 이관 ★ 표적 밖으로 나간 발이 카메라가 보는 영역 자체를
+   벗어나 '안 쏜 것'이 되는 일이 많았습니다. 이탈 감지 범위만 0.15 → 0.45 로
+   올립니다. 다른 설정은 하나도 건드리지 않습니다(엔진 판도 그대로 8). */
+(function migrateMargin(){
+  if(CFG.mgV2) return;
+  if((CFG.missMargin!=null?CFG.missMargin:0.15) < 0.45) CFG.missMargin=0.45;
+  CFG.mgV2=1; save(K.cfg,CFG);
+  setTimeout(()=>log('표적 밖 감지 범위를 넓혔습니다 — 표적 반지름의 1.45배까지 봅니다.'),320);
 })();
 function saveCfg(){ save(K.cfg,CFG); MAXB=CFG.maxBlobs||3; RED_AND=CFG.redOnly!==false;
   CHROMA_TH=CFG.chroma||12;
@@ -1839,7 +1873,15 @@ function finalizeTransform(){
       무게중심을 소수점으로 구하므로 실제 오차는 0.5mm 수준입니다.) */
   /* 넓게 보게 되었으므로 상한도 함께 올립니다. 넓힌 만큼 잘게 줄이면
      레이저 점의 화소 수가 줄어 검출이 나빠지기 때문입니다. */
-  const PIXCAP=170000, area=(x1-x0)*(y1-y0);
+  /* ★ v4.2 ★ 이탈 감지 범위를 넓히면 보는 영역이 넓어지고, 화소 상한이 고정이면
+     그만큼 잘게 줄여 계산하게 되어 레이저 점의 화소 수가 줄어듭니다(= 인식률 손해).
+     그래서 상한도 **같은 비율로 함께** 올립니다. 그러면 배율이 그대로라
+     표적 안의 인식률은 유지한 채 보는 범위만 넓어집니다.
+       여유 0.15 → 상한 170,000 · 배율 0.42 · 점 9.2화소   (예전)
+       여유 0.45 → 상한 270,300 · 배율 0.42 · 점 9.2화소   (지금 · 범위만 1.26배)
+     계산량은 상한에 비례해 늘어나므로 320,000 에서 자릅니다. */
+  const PIXCAP=Math.min(320000, Math.round(170000*Math.pow((1+MG)/1.15,2)));
+  const area=(x1-x0)*(y1-y0);
   E.roiScale = area>PIXCAP ? Math.sqrt(PIXCAP/area) : 1;
   /* 표적만 볼 때의 배율을 기준으로 삼아 최소 면적을 물리적으로 같게 환산합니다 */
   { const ix=inner.map(p=>p.x), iy=inner.map(p=>p.y);
@@ -2908,12 +2950,31 @@ function onShot(t){
   updShootUI();
   if(SES.shots.length>=CFG.perRound) endRound();
 }
+/* ★ v4.2 수동 0점 ★
+   표적을 크게 벗어난 발은 카메라가 보는 영역 밖으로 나가 검출되지 않습니다.
+   범위를 넓혔지만 그보다 더 나가는 발도 있습니다. 그런 발을 없던 일로 두면
+   회차가 10발을 못 채우고, 평균 점수도 실제보다 높게 나옵니다.
+   그래서 교사·학생이 직접 '표적 밖 0점'을 넣을 수 있게 합니다.
+   좌표는 남기지 않습니다(추측한 값을 연구 자료에 넣지 않기 위해서입니다).
+   탄착군·MPI 계산은 원래 이탈 발을 빼고 하므로 그대로입니다. */
+function addManualMiss(){
+  if(!SES.firing) return;
+  if(SES.shots.length>=CFG.perRound) return;
+  const rec={x:0,y:0,r:0,score:0,dec:0,miss:true,manual:true,
+             frames:0,peak:0,ts:Date.now()};
+  rec.no=SES.shots.length+1; SES.shots.push(rec);
+  playScoreCue(0);
+  log(`표적 밖 0점을 직접 넣었습니다 (${rec.no}발)`);
+  updShootUI();
+  if(SES.shots.length>=CFG.perRound) endRound();
+}
 function undoShot(){
   if(!SES.shots.length||!SES.firing) return;
   const s=SES.shots.pop();
   E.lastRec=null;                     // 취소한 자리에 다시 쏠 수 있어야 합니다
   SES.shots.forEach((x,i)=>x.no=i+1);
-  log(`직전 발 취소: (${s.x.toFixed(1)}, ${s.y.toFixed(1)})mm ${s.miss?'이탈':s.score+'점'}`);
+  log(s.manual ? '직전 발 취소: 표적 밖 0점(직접 입력)'
+               : `직전 발 취소: (${s.x.toFixed(1)}, ${s.y.toFixed(1)})mm ${s.miss?'이탈':s.score+'점'}`);
   updShootUI();
 }
 /* 큰 화면에서는 영상이 '남는 자리를 채우도록' 크기를 직접 계산합니다.
@@ -2945,6 +3006,8 @@ function bigShot(on){
 function updShootUI(){
   const ub=document.getElementById('btnUndo');
   if(ub) ub.disabled=!(SES.firing&&SES.shots.length>0);
+  const mb=document.getElementById('btnMiss');
+  if(mb) mb.disabled=!(SES.firing&&SES.shots.length<CFG.perRound);
   const bp=document.getElementById('bsProgN');
   if(bp) bp.textContent=`${SES.shots.length}/${CFG.perRound}`;
   const bm=document.getElementById('bsProgMsg');
@@ -2959,7 +3022,7 @@ function updShootUI(){
   document.getElementById('stProg').textContent=`${SES.shots.length}/${CFG.perRound}`;
   document.getElementById('shList').innerHTML=SES.shots.map(s=>
     `<li class="${s.miss?'miss':''}"><span class="no">${s.no}발</span>`+
-    `<span class="pos">x ${s.x.toFixed(1)} · y ${s.y.toFixed(1)} mm</span>`+
+    `<span class="pos">${s.manual?'표적 밖 (직접 입력)':`x ${s.x.toFixed(1)} · y ${s.y.toFixed(1)} mm`}</span>`+
     `<span class="sc">${s.miss?'이탈':s.score+'점'}</span></li>`).join('');
 }
 function metrics(shots){
@@ -3020,9 +3083,14 @@ function saveRound(m,opts){
     log(`${SES.stu.nick} ${SES.session}회차 재측정 (${attempt}번째 시도) — 이전 기록을 대체했습니다.`);
   }
   SES.shots.forEach(s=>SHOTS.push(Object.assign({},base,{
-    shot_no:s.no,x_mm:+s.x.toFixed(2),y_mm:+s.y.toFixed(2),r_mm:+s.r.toFixed(2),
-    score:s.score,dec:+s.dec.toFixed(2),is_miss:s.miss?1:0,frames:s.frames,peak:s.peak,ts:s.ts})));
+    shot_no:s.no,
+    x_mm:s.manual?'':+s.x.toFixed(2), y_mm:s.manual?'':+s.y.toFixed(2),
+    r_mm:s.manual?'':+s.r.toFixed(2),
+    score:s.score,dec:+s.dec.toFixed(2),is_miss:s.miss?1:0,
+    manual:s.manual?1:0,
+    frames:s.frames,peak:s.peak,ts:s.ts})));
   ROUNDS.push(Object.assign({},base,{
+    nick:SES.stu.nick,
     n:SES.shots.length, attempt, incomplete: SES.shots.length<CFG.perRound?1:0,
     avg:+m.avg.toFixed(2),dec:+m.dec.toFixed(2),
     grp_mm:+m.grp.toFixed(2),mpi_dev_mm:+m.mpiDev.toFixed(2),mpi_clock:m.mpiClock,
@@ -3035,6 +3103,7 @@ function saveRound(m,opts){
   save(K.shots,SHOTS); save(K.rounds,ROUNDS); refreshLocks();
   if(document.getElementById('tcSaveState')) updSaveBar();
   log(`${SES.stu.nick} ${SES.session}회차 저장 · 평균 ${m.avg.toFixed(1)}점`);
+  try{ sbQueue(ROUNDS[ROUNDS.length-1]); }catch(e){ /* 연동 실패가 저장을 막으면 안 됩니다 */ }
 }
 function patchRound(patch){
   for(let i=ROUNDS.length-1;i>=0;i--){
@@ -3398,24 +3467,140 @@ document.getElementById('recSw').addEventListener('click',ev=>{
   renderRecord();
 });
 
+/* ═══════════════ 전체 순위 연동 (v4.2) ═══════════════
+   설계 원칙
+   ① 주소가 비어 있으면 아무 일도 하지 않습니다 — 기존 동작 그대로입니다.
+   ② 사격을 절대 막지 않습니다. 올리기는 전부 뒤에서 돌고, 실패하면 조용히 다시 씁니다.
+   ③ 오프라인 우선 — 와이파이가 끊겨도 회차는 정상 저장되고 대기열에 쌓입니다.
+   ④ 같은 자료를 여러 번 보내도 안전합니다(코드+회차+시도 로 서버가 구분).
+   ⑤ 올리는 것은 **회차 요약뿐**입니다. 좌표·발별 자료는 태블릿에 남습니다. */
+let OUTBOX=load(K.outbox,[]);
+let RANKC=load(K.rank,null);
+let SB={busy:false,lastTry:0,lastOk:0,lastErr:''};
+
+/* 학생 자료가 오가므로 https 만 허용합니다. (localhost 는 시험용) */
+function sbOn(){ return !!(CFG.serverUrl && /^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1)[:\/])/.test(CFG.serverUrl)); }
+function sbRow(r){
+  const st=ROSTER.students.find(x=>x.cls===r.cls&&x.num===r.num);
+  return {code:r.code,cls:r.cls,num:r.num,nick:r.nick||(st?st.nick:String(r.num)),
+          group:r.group||'',session:r.session,attempt:r.attempt||1,
+          n:r.n,avg:r.avg,grp_mm:r.grp_mm,mpi_dev_mm:r.mpi_dev_mm,
+          miss:r.miss||0,ts:r.ts};
+}
+function sbQueue(r){
+  if(!sbOn()) return;
+  const row=sbRow(r), id=`${row.code}|${row.session}|${row.attempt}`;
+  OUTBOX=OUTBOX.filter(x=>x.id!==id);
+  OUTBOX.push({id,row});
+  if(OUTBOX.length>500) OUTBOX=OUTBOX.slice(-500);
+  save(K.outbox,OUTBOX); updServerUI();
+  sbFlush();
+}
+async function sbPost(body){
+  /* text/plain 으로 보내면 브라우저가 사전 확인(OPTIONS)을 하지 않습니다.
+     Apps Script 는 OPTIONS 를 처리하지 못하므로 이 방식이라야 통과합니다. */
+  const res=await fetch(CFG.serverUrl,{method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(body)});
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const t=await res.text();
+  let j; try{ j=JSON.parse(t); }catch(e){ throw new Error('응답을 읽지 못했습니다'); }
+  if(!j||j.ok!==true) throw new Error((j&&j.error)||'서버가 거부했습니다');
+  return j;
+}
+async function sbFlush(opts){
+  if(!sbOn()||SB.busy||!OUTBOX.length) return;
+  const now=Date.now();
+  if(!(opts&&opts.force) && now-SB.lastTry<4000) return;
+  SB.busy=true; SB.lastTry=now; updServerUI();
+  try{
+    const batch=OUTBOX.slice(0,40);
+    await sbPost({op:'push',key:CFG.serverKey||'',rows:batch.map(x=>x.row)});
+    const done=new Set(batch.map(x=>x.id));
+    OUTBOX=OUTBOX.filter(x=>!done.has(x.id)); save(K.outbox,OUTBOX);
+    SB.lastOk=Date.now(); SB.lastErr='';
+    log(`전체 순위 서버에 ${batch.length}건 올렸습니다.`+(OUTBOX.length?` (남은 ${OUTBOX.length}건)`:''));
+    sbFetchRank();
+  }catch(e){
+    SB.lastErr=String(e.message||e);
+    /* 실패는 조용히 둡니다 — 다음 기회에 다시 보냅니다. 수업을 방해하지 않습니다. */
+  }
+  SB.busy=false; updServerUI();
+  if(OUTBOX.length) setTimeout(()=>sbFlush(),8000);
+}
+async function sbFetchRank(){
+  if(!sbOn()) return;
+  try{
+    const u=CFG.serverUrl+(CFG.serverUrl.indexOf('?')<0?'?':'&')
+      +'op=rank&key='+encodeURIComponent(CFG.serverKey||'')
+      +'&cls='+encodeURIComponent(rankCls());
+    const res=await fetch(u); if(!res.ok) throw new Error('HTTP '+res.status);
+    const j=await res.json();
+    if(j&&j.ok){ RANKC={cls:j.cls||[],grade:j.grade||[],at:Date.now()};
+      save(K.rank,RANKC);
+      /* 순위 화면이 열려 있을 때만 다시 그립니다 — 실패해도 수업에 지장이 없어야 합니다 */
+      try{ if(document.getElementById('rkList')) renderRank(); }catch(err){}
+      updServerUI(); }
+  }catch(e){ /* 순위는 없어도 수업에 지장이 없습니다 */ }
+}
+function updServerUI(){
+  const tag=document.getElementById('srvTag'), st=document.getElementById('tcSrvState');
+  if(tag) tag.textContent = sbOn()?'켜짐':'꺼짐';
+  if(tag) tag.className = 'tag'+(sbOn()?' ok':'');
+  if(!st) return;
+  if(!sbOn()){ st.innerHTML='주소를 넣지 않았습니다 — <b>이 태블릿 기록만</b>으로 순위를 만듭니다.'; return; }
+  const when=SB.lastOk?fmtWhen(SB.lastOk):'아직 없음';
+  st.innerHTML=`대기 <b>${OUTBOX.length}건</b> · 마지막 성공 <b>${when}</b>`
+    +(SB.busy?' · 올리는 중…':'')
+    +(SB.lastErr?`<br><span style="color:var(--shot)">마지막 오류: ${SB.lastErr}</span> — 자동으로 다시 시도합니다.`:'')
+    +(RANKC?`<br><span class="muted">순위 자료 ${fmtWhen(RANKC.at)} 기준 · 학급 ${(RANKC.cls||[]).length}명 · 학년 ${(RANKC.grade||[]).length}명</span>`:'');
+}
+/* 앱이 다시 보일 때·주기적으로 남은 것을 밀어 올립니다 */
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ sbFlush(); sbFetchRank(); } });
+setInterval(()=>{ if(!document.hidden) sbFlush(); }, 60000);
+
 /* ===================== 랭킹 ===================== */
 let rkMode='class';
+/* ★ v4.2 ★ 순위의 기준이 되는 학급.
+   서버에서 자료를 받아오면 화면을 다시 그리는데, 그때 학생이 이미 로그아웃해
+   SES.stu 가 비어 있을 수 있습니다. 그럴 때는 마지막 회차의 학급을 씁니다. */
+function rankCls(){
+  if(SES.stu&&SES.stu.cls) return SES.stu.cls;
+  const last=ROUNDS[ROUNDS.length-1];
+  return last?last.cls:'';
+}
 function renderRank(){
-  const scope = rkMode==='class' ? r=>r.cls===SES.stu.cls : ()=>true;
+  const myCls=rankCls();
+  const scope = rkMode==='class' ? r=>r.cls===myCls : ()=>true;
   const best={};
-  ROUNDS.filter(scope).forEach(r=>{ if(!best[r.code]||r.avg>best[r.code].avg) best[r.code]={avg:r.avg,cls:r.cls,num:r.num}; });
+  /* ① 이 태블릿 기록 (지금까지와 동일 — 서버가 없어도 그대로 동작합니다) */
+  ROUNDS.filter(scope).forEach(r=>{ if(!best[r.code]||r.avg>best[r.code].avg)
+    best[r.code]={avg:r.avg,cls:r.cls,num:r.num,nick:r.nick||null}; });
+  /* ② 서버에서 받아 둔 다른 태블릿 기록을 합칩니다.
+        같은 학생이 양쪽에 있으면 더 높은 평균을 씁니다. */
+  if(RANKC){
+    const list=(rkMode==='class'?RANKC.cls:RANKC.grade)||[];
+    list.forEach(x=>{
+      if(rkMode==='class' && myCls && x.cls!==myCls) return;
+      if(!best[x.code]||x.avg>best[x.code].avg)
+        best[x.code]={avg:x.avg,cls:x.cls,num:x.num,nick:x.nick};
+    });
+  }
   const arr=Object.keys(best).map(code=>{
-    const s=ROSTER.students.find(s=>s.cls===best[code].cls&&s.num===best[code].num);
-    return {code,nick:s?s.nick:best[code].num,avg:best[code].avg,cls:best[code].cls};
+    const b=best[code];
+    const s=ROSTER.students.find(s=>s.cls===b.cls&&s.num===b.num);
+    return {code,nick:(s&&s.nick)||b.nick||b.num,avg:b.avg,cls:b.cls};
   }).sort((a,b)=>b.avg-a.avg).slice(0, rkMode==='class'?10:20);
   document.getElementById('rkList').innerHTML=arr.length?arr.map((a,i)=>
-    `<li class="${a.code===SES.stu.code?'me':''}"><span class="p">${i+1}</span>`+
+    `<li class="${(SES.stu&&a.code===SES.stu.code)?'me':''}"><span class="p">${i+1}</span>`+
     `<span class="nm">${a.nick}${rkMode==='grade'?` <span class="muted" style="font-size:12px">${a.cls}</span>`:''}</span>`+
     `<span class="sc">${a.avg.toFixed(1)}</span></li>`).join('')
     :'<li><span class="nm muted">아직 기록이 없습니다</span></li>';
-  document.getElementById('rkNote').innerHTML= CFG.serverUrl
-    ? '전체 학급 기록을 반영합니다.'
-    : '<b>이 태블릿에 저장된 기록만</b> 반영합니다. 서버를 연결하면 전체 순위가 표시됩니다.';
+  document.getElementById('rkNote').innerHTML= sbOn()
+    ? (RANKC ? `전체 태블릿 기록을 반영합니다. <span class="muted">(${fmtWhen(RANKC.at)} 기준)</span>`
+             : '전체 순위를 받아오는 중입니다 — 잠시 뒤 다시 열어 보십시오.')
+    : '<b>이 태블릿에 저장된 기록만</b> 반영합니다. 교사 설정에서 서버를 연결하면 전체 순위가 표시됩니다.';
+  if(sbOn() && (!RANKC || Date.now()-RANKC.at>60000)) sbFetchRank();
 }
 document.getElementById('rkSw').addEventListener('click',ev=>{
   const b=ev.target.closest('button'); if(!b) return;
@@ -3540,6 +3725,7 @@ function redoRound(){
 document.getElementById('cRedo').addEventListener('click',redoRound);
 document.getElementById('rRedo').addEventListener('click',redoRound);
 document.getElementById('btnUndo').addEventListener('click',()=>{ undoShot(); touch(); });
+document.getElementById('btnMiss').addEventListener('click',()=>{ addManualMiss(); touch(); });
 document.getElementById('btnFire').addEventListener('click',()=>{
   if(SES.firing) stopFire(); else beginFire(); touch();
 });
@@ -3680,6 +3866,7 @@ function refreshTeacher(){
   const cfgMap=[['tcPreset','preset'],['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],
                 ['tcPerRound','perRound'],['tcRed','red'],['tcLum','lum'],
                 ['tcBlack','blackRatio'],['tcMinA','minA'],['tcMinF','minF'],['tcChroma','chroma'],
+                ['tcMargin','missMargin'],
                 ['tcCool','cool'],['tcMaxB','maxBlobs']];
   cfgMap.forEach(([id,k])=>{ const el=document.getElementById(id); el.value=CFG[k]; });
   // 데이터
@@ -3695,12 +3882,28 @@ function refreshTeacher(){
   document.getElementById('tcRoster').value=ROSTER.students.map(s=>
     `${s.cls},${s.num},${s.nick},${s.ov}`).join('\n');
   updThLock();
+  updMarginInfo();
+  { const u=document.getElementById('tcSrvUrl'), k=document.getElementById('tcSrvKey');
+    if(u) u.value=CFG.serverUrl||''; if(k) k.value=CFG.serverKey||''; }
+  updServerUI();
   updReady();
 }
 { const cb=document.getElementById('tcRedOnly');
   cb.checked=CFG.redOnly!==false; RED_AND=cb.checked;
   cb.addEventListener('change',()=>{ CFG.redOnly=cb.checked; RED_AND=cb.checked; saveCfg();
     log('붉은빛 판별 '+(cb.checked?'켬':'끔')); }); }
+/* ★ v4.2 ★ 표적 밖 감지 범위 안내 — 실제 몇 mm 까지 보는지 숫자로 보여 줍니다 */
+function updMarginInfo(){
+  const el=document.getElementById('tcMarginInfo'); if(!el) return;
+  const MG=Math.max(0,Math.min(1.2,CFG.missMargin!=null?CFG.missMargin:0.45));
+  const R=(CFG.dia||158)/2, out=R*(1+MG);
+  const cap=Math.min(320000, Math.round(170000*Math.pow((1+MG)/1.15,2)));
+  el.innerHTML=`표적 반지름 <b>${R.toFixed(0)}mm</b> · 이 값이면 중심에서 <b>${out.toFixed(0)}mm</b>까지 봅니다`
+    +` (표적 끝에서 <b>+${(out-R).toFixed(0)}mm</b>). 그 밖으로 나간 발은 카메라가 보지 못하므로 `
+    +`<b>[표적 밖 0점]</b> 단추로 직접 넣으십시오.<br>`
+    +`<span class="muted">넓힐수록 처리량이 늘어납니다(지금 상한 ${cap.toLocaleString()}화소). `
+    +`화면이 버벅이면 0.30 으로 줄이십시오. 바꾼 뒤에는 <b>배경 학습</b>을 다시 해야 합니다.</span>`;
+}
 /* ★ v4.1 임계값 고정 ★ */
 function updThLock(){
   const cb=document.getElementById('tcThLock'), inf=document.getElementById('tcThLockInfo');
@@ -3725,6 +3928,38 @@ function updThLock(){
       +`<br><b>[신호 측정 → 검증 통과]</b>를 하거나 임계값을 손으로 넣으면 자동으로 고정됩니다.`;
   }
 }
+/* ★ v4.2 서버 연동 UI ★ */
+{ const u=document.getElementById('tcSrvUrl'), k=document.getElementById('tcSrvKey');
+  u.addEventListener('change',()=>{ CFG.serverUrl=u.value.trim(); saveCfg(); updServerUI();
+    log('서버 주소를 '+(CFG.serverUrl?'설정했습니다.':'비웠습니다 — 이 태블릿 기록만 씁니다.'));
+    if(sbOn()){ sbFlush({force:true}); sbFetchRank(); } });
+  k.addEventListener('change',()=>{ CFG.serverKey=k.value.trim(); saveCfg(); updServerUI(); });
+}
+document.getElementById('tcSrvTest').addEventListener('click',async()=>{
+  const st=document.getElementById('tcSrvState');
+  if(!sbOn()){ alert('서버 주소를 먼저 넣으십시오. https:// 로 시작해야 합니다.'); return; }
+  st.textContent='연결을 시험하는 중…';
+  try{
+    const j=await sbPost({op:'ping',key:CFG.serverKey||''});
+    st.innerHTML=`<span class="tag ok">연결 성공</span> 시트 <b>${j.sheet||'?'}</b> · 저장된 회차 <b>${j.rows!=null?j.rows:'?'}</b>건`;
+    log('서버 연결 시험 성공');
+    sbFetchRank();
+  }catch(e){
+    st.innerHTML=`<span class="tag bad">연결 실패</span> ${String(e.message||e)}<br>`
+      +`<span class="muted">① 주소가 <b>/exec</b> 로 끝나는지 ② 배포할 때 <b>액세스 권한을 "모든 사용자"</b>로 했는지 `
+      +`③ 공유 열쇠가 스크립트와 같은지 확인하십시오.</span>`;
+    log('서버 연결 시험 실패: '+String(e.message||e));
+  }
+});
+document.getElementById('tcSrvPush').addEventListener('click',()=>{
+  if(!sbOn()){ alert('서버 주소를 먼저 넣으십시오.'); return; }
+  if(!OUTBOX.length){
+    /* 대기열이 비어 있으면 지금까지의 회차를 전부 다시 올립니다(중복은 서버가 정리합니다) */
+    ROUNDS.forEach(r=>{ const row=sbRow(r); OUTBOX.push({id:`${row.code}|${row.session}|${row.attempt}`,row}); });
+    save(K.outbox,OUTBOX); log(`지난 회차 ${OUTBOX.length}건을 대기열에 넣었습니다.`);
+  }
+  sbFlush({force:true});
+});
 { const cb=document.getElementById('tcThLock');
   cb.addEventListener('change',()=>{
     CFG.thLock=cb.checked; if(cb.checked) CFG.thLockAt=Date.now();
@@ -3743,7 +3978,8 @@ document.getElementById('tcPreset').addEventListener('change',ev=>{
 });
 [['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],['tcPerRound','perRound'],
  ['tcRed','red'],['tcLum','lum'],['tcBlack','blackRatio'],['tcMinA','minA'],
- ['tcMinF','minF'],['tcCool','cool'],['tcMaxB','maxBlobs'],['tcChroma','chroma']].forEach(([id,k])=>{
+ ['tcMinF','minF'],['tcCool','cool'],['tcMaxB','maxBlobs'],['tcChroma','chroma'],
+ ['tcMargin','missMargin']].forEach(([id,k])=>{
   document.getElementById(id).addEventListener('change',ev=>{
     const v=parseFloat(ev.target.value);
     if(!isFinite(v)||v<=0) return;
@@ -3761,6 +3997,13 @@ document.getElementById('tcPreset').addEventListener('change',ev=>{
     if(['calib','dia','rings','blackRatio'].indexOf(k)>=0){
       if(E.fitMode==='auto'&&E.fitDisc) reFit();
       else if(E.quad) buildTransform();
+    }
+    /* ★ v4.2 ★ 감지 범위를 바꾸면 보는 영역이 달라지므로 다시 계산합니다.
+       배경은 영역이 바뀌면 못 씁니다 — 배경 학습을 다시 해야 한다고 알립니다. */
+    if(k==='missMargin'){
+      if(E.H){ finalizeTransform(); log('표적 밖 감지 범위를 바꿨습니다 — [배경 학습]을 다시 하십시오.');
+               const bb=document.getElementById('tcBg'); if(bb) bb.disabled=false; }
+      updMarginInfo();
     }
     updReady();
   });
@@ -4329,7 +4572,7 @@ function toCsv(rows,cols){
   }).join(',')).join('\n');
 }
 const stamp=()=>new Date().toISOString().slice(0,19).replace(/[:T-]/g,'');
-const SHOT_COLS=['code','cls','num','group','session','shot_no','x_mm','y_mm','r_mm','score','dec','is_miss','frames','peak','ts'];
+const SHOT_COLS=['code','cls','num','group','session','shot_no','x_mm','y_mm','r_mm','score','dec','is_miss','manual','frames','peak','ts'];
 const ROUND_COLS=['code','cls','num','group','session','n','attempt','incomplete','avg','dec','grp_mm','mpi_dev_mm','mpi_clock','hits_max','miss',
      'coach_shown','coach_dwell_ms','diag_code','diag_variant','basic_id','praise',
      'prev_session','d_avg','d_grp','d_dev','drill_ids','drill_done','class_mismatch',
