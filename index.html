@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v4.2</title>
+<title>샷라인 SHOTLINE v4.4</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -2364,12 +2364,29 @@ function renderOverlay(){
      새 학생이 들어와도 교사가 시험 삼아 쏜 10발이 표적에 그대로 찍혀 있었습니다. */
   const onTeacher = document.getElementById('scTeacher').classList.contains('on');
   const marks = (onTeacher && (TEST.on||TEST.shots.length)) ? TEST.shots : SES.shots;
+  /* ★ v4.3 ★ 손으로 넣은 [표적 밖 0점]은 좌표가 없습니다(x=0, y=0).
+     예전에는 그 값을 그대로 그려서 표적 한가운데 — 즉 10점 자리 — 에 점이 찍혔습니다.
+     기록은 처음부터 0점이 맞았지만 화면만 10점처럼 보였습니다.
+     이제 표적 위에는 그리지 않고, 아래에 발수만 따로 적습니다. */
   if(E.H&&marks.length) marks.forEach((sh,i)=>{
+    if(sh.manual) return;
     const q=P(applyH(E.H,sh.x,sh.y));
     octx.fillStyle=sh.miss?'#FF8A00':'#E2452F';
     octx.beginPath();octx.arc(q.x,q.y,5.5,0,7);octx.fill();
     octx.strokeStyle='#fff';octx.lineWidth=1.5;octx.stroke();
-    octx.fillStyle='#fff';octx.font='bold 10px monospace';octx.fillText(String(i+1),q.x+8,q.y-5); });
+    /* 번호는 배열 순서가 아니라 실제 발 번호를 씁니다 — 건너뛴 발이 있어도 어긋나지 않습니다 */
+    octx.fillStyle='#fff';octx.font='bold 10px monospace';
+    octx.fillText(String(sh.no||i+1),q.x+8,q.y-5); });
+  { const nm=marks.filter(x=>x.manual).length;
+    if(nm){
+      const t=`표적 밖 0점 ${nm}발`;
+      octx.font='bold 13px -apple-system,system-ui,sans-serif';
+      const tw=octx.measureText(t).width;
+      octx.fillStyle='rgba(18,22,29,.72)';
+      octx.fillRect(8,h-30,tw+16,22);
+      octx.fillStyle='#FF8A00';
+      octx.fillText(t,16,h-14);
+    } }
 }
 
 /* ★ 자동 원 맞추기 ★
@@ -3536,7 +3553,7 @@ async function sbFetchRank(){
       +'&cls='+encodeURIComponent(rankCls());
     const res=await fetch(u); if(!res.ok) throw new Error('HTTP '+res.status);
     const j=await res.json();
-    if(j&&j.ok){ RANKC={cls:j.cls||[],grade:j.grade||[],at:Date.now()};
+    if(j&&j.ok){ RANKC={cls:j.cls||[],grade:j.grade||[],at:Date.now(),forCls:rankCls()};
       save(K.rank,RANKC);
       /* 순위 화면이 열려 있을 때만 다시 그립니다 — 실패해도 수업에 지장이 없어야 합니다 */
       try{ if(document.getElementById('rkList')) renderRank(); }catch(err){}
@@ -3573,12 +3590,17 @@ function renderRank(){
   const myCls=rankCls();
   const scope = rkMode==='class' ? r=>r.cls===myCls : ()=>true;
   const best={};
-  /* ① 이 태블릿 기록 (지금까지와 동일 — 서버가 없어도 그대로 동작합니다) */
+  /* ① 이 태블릿 기록 (서버가 없어도 그대로 동작합니다) */
   ROUNDS.filter(scope).forEach(r=>{ if(!best[r.code]||r.avg>best[r.code].avg)
     best[r.code]={avg:r.avg,cls:r.cls,num:r.num,nick:r.nick||null}; });
   /* ② 서버에서 받아 둔 다른 태블릿 기록을 합칩니다.
-        같은 학생이 양쪽에 있으면 더 높은 평균을 씁니다. */
-  if(RANKC){
+        같은 학생이 양쪽에 있으면 더 높은 평균을 씁니다.
+     ★ v4.4 ★ 학급 목록은 '요청한 그 학급'의 것입니다. 다음 학생이 다른 학급이면
+        캐시가 맞지 않으므로 쓰지 않고 새로 받아옵니다. 예전에는 이 확인이 없어
+        학급이 바뀐 뒤에는 서버 자료가 통째로 걸러져, 이 태블릿에서 쏜 학생만
+        (= 이 사로의 조원만) 보였습니다. */
+  const clsCacheOk = !!(RANKC && (!myCls || RANKC.forCls===myCls));
+  if(RANKC && (rkMode!=='class' || clsCacheOk)){
     const list=(rkMode==='class'?RANKC.cls:RANKC.grade)||[];
     list.forEach(x=>{
       if(rkMode==='class' && myCls && x.cls!==myCls) return;
@@ -3586,21 +3608,48 @@ function renderRank(){
         best[x.code]={avg:x.avg,cls:x.cls,num:x.num,nick:x.nick};
     });
   }
-  const arr=Object.keys(best).map(code=>{
+  /* ③ 줄 세우기 — 학급은 전원, 학년은 상위 50명까지 */
+  const all=Object.keys(best).map(code=>{
     const b=best[code];
-    const s=ROSTER.students.find(s=>s.cls===b.cls&&s.num===b.num);
-    return {code,nick:(s&&s.nick)||b.nick||b.num,avg:b.avg,cls:b.cls};
-  }).sort((a,b)=>b.avg-a.avg).slice(0, rkMode==='class'?10:20);
-  document.getElementById('rkList').innerHTML=arr.length?arr.map((a,i)=>
-    `<li class="${(SES.stu&&a.code===SES.stu.code)?'me':''}"><span class="p">${i+1}</span>`+
-    `<span class="nm">${a.nick}${rkMode==='grade'?` <span class="muted" style="font-size:12px">${a.cls}</span>`:''}</span>`+
-    `<span class="sc">${a.avg.toFixed(1)}</span></li>`).join('')
-    :'<li><span class="nm muted">아직 기록이 없습니다</span></li>';
+    const st=ROSTER.students.find(y=>y.cls===b.cls&&y.num===b.num);
+    return {code, nick:(st&&st.nick)||b.nick||b.num, avg:b.avg, cls:b.cls, num:b.num};
+  }).sort((a,b)=>b.avg-a.avg);
+  const LIMIT = rkMode==='class' ? 60 : 50;
+  const shown = all.slice(0,LIMIT);
+  /* 내가 잘린 자리에 있으면 맨 아래에 내 순위를 따로 붙여 줍니다 */
+  const myIdx = SES.stu ? all.findIndex(a=>a.code===SES.stu.code) : -1;
+  const tail  = (myIdx>=LIMIT) ? {rank:myIdx+1, a:all[myIdx]} : null;
+
+  const row=(a,rank)=>{
+    const me=(SES.stu&&a.code===SES.stu.code);
+    /* ★ v4.4 ★ 누구인지 알아볼 수 있게 학급·번호를 함께 보여 줍니다.
+       학년 순위에서는 '1-2 · 7번', 학급 순위에서는 '7번'. */
+    const tagTxt = rkMode==='grade' ? `${a.cls} · ${a.num}번` : `${a.num}번`;
+    return `<li class="${me?'me':''}"><span class="p">${rank}</span>`
+      +`<span class="nm">${a.nick}`
+      +`<span class="muted" style="font-size:12px;margin-left:6px;white-space:nowrap">${tagTxt}</span>`
+      +`</span><span class="sc">${a.avg.toFixed(1)}</span></li>`;
+  };
+  document.getElementById('rkList').innerHTML = all.length
+    ? shown.map((a,i)=>row(a,i+1)).join('')
+      + (tail ? `<li aria-hidden="true"><span class="p muted">⋯</span><span class="nm"></span><span class="sc"></span></li>`
+               + row(tail.a, tail.rank) : '')
+    : '<li><span class="nm muted">아직 기록이 없습니다</span></li>';
+
+  const n=all.length;
   document.getElementById('rkNote').innerHTML= sbOn()
-    ? (RANKC ? `전체 태블릿 기록을 반영합니다. <span class="muted">(${fmtWhen(RANKC.at)} 기준)</span>`
-             : '전체 순위를 받아오는 중입니다 — 잠시 뒤 다시 열어 보십시오.')
-    : '<b>이 태블릿에 저장된 기록만</b> 반영합니다. 교사 설정에서 서버를 연결하면 전체 순위가 표시됩니다.';
-  if(sbOn() && (!RANKC || Date.now()-RANKC.at>60000)) sbFetchRank();
+    ? (RANKC
+        ? (rkMode==='class' && !clsCacheOk
+            ? '학급 전체 순위를 받아오는 중입니다 — 잠시 뒤 다시 열어 보십시오.'
+            : `전체 태블릿 기록을 반영합니다 · <b>${n}명</b> `
+              +`<span class="muted">(${fmtWhen(RANKC.at)} 기준)</span>`)
+        : '전체 순위를 받아오는 중입니다 — 잠시 뒤 다시 열어 보십시오.')
+    : `<b>이 태블릿에서 쏜 학생만</b> 나옵니다 · ${n}명 — 사로가 나뉘어 있어 학급 전체가 보이지 않습니다.<br>`
+      +'<span class="muted">교사 설정 → 전체 순위 연동에 서버 주소를 넣으면 네 사로가 합쳐집니다.</span>';
+
+  /* 캐시가 없거나·1분이 지났거나·학급이 바뀌었으면 새로 받아옵니다 */
+  if(sbOn() && (!RANKC || Date.now()-RANKC.at>60000 || (myCls && RANKC.forCls!==myCls)))
+    sbFetchRank();
 }
 document.getElementById('rkSw').addEventListener('click',ev=>{
   const b=ev.target.closest('button'); if(!b) return;
