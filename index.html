@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v4.4</title>
+<title>샷라인 SHOTLINE v4.5</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -1000,6 +1000,7 @@ function buildBgGrad(bg,w,h){
       gy[i]=0.5*((y<h-1?A[i+w]:A[i])-(y>0?A[i-w]:A[i])); }
     return {gx,gy};
   };
+  bg.mL=L;                       /* ★ v4.5 ★ 배경 밝기 지도를 보관합니다 */
   const a=mk(L), b=mk(Xc);
   const gm=new Float32Array(n);
   for(let i=0;i<n;i++) gm[i]=Math.hypot(a.gx[i],a.gy[i]);
@@ -1082,11 +1083,15 @@ let RED_AND=true;    // 붉은빛으로 가려낼지 (기본 켬)
 let RED_RATIO=0.4;   // '붉은 정도 ÷ 밝기'가 이 값 미만이면 무채색으로 보고 버립니다
 let CHROMA_TH=12;    // 색 경로 임계값(0~255 절대값) — CFG.chroma 와 동기화
 let GRAD_K=0;
-const MB={rl:null,rr:null,rc:null,tp:null,al:null,ar:null,z:null,bd:null,n:0,key:''};
+const MB={rl:null,rr:null,rc:null,tp:null,al:null,ar:null,z:null,bd:null,
+          br:null,cw:null,wl:null,n:0,key:''};
 function mbEnsure(n,key){
   if(MB.n<n){ MB.rl=new Float32Array(n);MB.rr=new Float32Array(n);MB.rc=new Float32Array(n);MB.tp=new Float32Array(n);
     MB.al=new Float32Array(n);MB.ar=new Float32Array(n);MB.z=new Float32Array(n);
-    MB.bd=new Uint8Array(n); MB.n=n; MB.key=''; }
+    MB.bd=new Uint8Array(n);
+    /* ★ v4.5 ★ br=배경 대비 밝기차 · cw=되맞춘 색 배경 · wl=되맞춘 배경 밝기 */
+    MB.br=new Float32Array(n); MB.cw=new Float32Array(n); MB.wl=new Float32Array(n);
+    MB.n=n; MB.key=''; }
   if(MB.key!==key){ MB.al.fill(0); MB.ar.fill(0); MB.key=key; }
 }
 function box3(src,dst,tmp,w,h){
@@ -1139,12 +1144,14 @@ const SCL=[1,1,1,1], SCR=[1,1,1,1];
    9999 를 넘기면 색 경로를 끕니다(자동 보정 중 잡음만 잴 때). */
 function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
   const n=w*h,d=img.data;
+  const now_=performance.now();
   if(!bg||!bg.mR||bg.mR.length<n) return {blobs:[],stats:{maxRed:0,maxLum:0,flood:false,redAt:null,lumAt:null}};
   ensure(n); mbEnsure(n,w+'x'+h);
   const ae=aeOffset(d,bg,n); E.aeLast=ae;
   const oR=ae.r,oG=ae.g,oB=ae.b;
+  const obl=0.30*oR+0.59*oG+0.11*oB;
   const wgt=buf.w,lum=buf.l,lab=buf.lb,st=buf.st;
-  const rl=MB.rl,rr=MB.rr,rc=MB.rc,al=MB.al,ar=MB.ar,z=MB.z,bd=MB.bd;
+  const rl=MB.rl,rr=MB.rr,rc=MB.rc,al=MB.al,ar=MB.ar,z=MB.z,bd=MB.bd,br=MB.br;
   /* thC 규칙
        (안 넘김) → CFG.chroma 로 판정
        -1        → 색을 재기만 하고 판정에는 쓰지 않음 (자동 보정용)
@@ -1198,7 +1205,9 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
        무채색이라 이 값이 0 근처입니다. */
     if(chromaOn){
       const g2=d[p+1], b2=d[p+2];
-      rc[i]=(d[p]-(g2>b2?g2:b2)) - bg.mC[i];
+      /* ★★ v4.5 ★★ 여기서는 '지금의 붉은 정도'만 담습니다.
+         배경 색 지도를 빼는 일은 아래에서, 태블릿이 밀린 만큼 되맞춘 뒤 합니다. */
+      rc[i]=(d[p]-(g2>b2?g2:b2));
     }
     lum[i]= yd>0 ? yd/(yb>REF_BG?yb:REF_BG) : 0;
     drift+= yd>0?yd:-yd;
@@ -1214,6 +1223,84 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
       drift=ab; }
   }
   E.shift=SH;
+  /* ★★★ v4.5 — 색 경로가 태블릿 흔들림에 무너지던 것을 고칩니다 ★★★
+
+     시간 차이 경로는 세 프레임을 부분화소로 겹쳐(tbWarp) 비교하므로 흔들림에
+     강했습니다. 그런데 색 경로만은 배경 학습 때 찍은 색 지도(bg.mC)를 화소 위치
+     그대로 빼고 있었습니다. "색은 흔들림과 무관하다"는 말은 **조명·노출 변화**에
+     대해서만 맞고, **카메라가 실제로 움직이는 것**에는 가장 약한 경로였습니다.
+
+     모의실험(렌즈 흐림 1화소·색수차 0.25%) 기준, 되맞추지 않았을 때의 가짜 색:
+        0.3화소 4.2 · 0.6화소 6.5 · 1.2화소 12.3 · 2.4화소 19.6
+     색 임계값이 12, 한 프레임 단독 인정 기준이 19이므로 1화소만 밀려도
+     유령탄착이 나옵니다. 되맞추면 같은 구간이 3~4로 내려갑니다.
+
+     ★ 다만 이동량 추정은 1.2화소까지만 믿을 수 있습니다.
+       3화소를 넘어가면 추정이 무너지면서 오히려 '안 움직였다'고 보고합니다
+       (모의실험: 실제 9.8화소 → 0.27로 보고). 그래서 이동량으로 판정하지 않고
+       **배경 불일치량**으로 판정합니다. 이 값은 정렬이 맞을 때의 기준선 대비
+       0.3~1.2화소에서 7~12배, 2.4화소에서 35배, 3.7화소 이상에서 130배 넘게
+       올라가 깨끗하게 갈립니다. */
+  let BS={dx:0,dy:0}, bres=-1;
+  if(bg.mL && bg.gxL && bg.gradN===n){
+    const CL=TB.L[iCur], mL=bg.mL, wl=MB.wl;
+    for(let i=0;i<n;i++) br[i]=CL[i]-mL[i]-obl;
+    let s1=solveShift(br,bg,n,w); BS.dx=s1.dx; BS.dy=s1.dy;
+    if(Math.abs(BS.dx)>0.25||Math.abs(BS.dy)>0.25){
+      /* 한 번 되맞춘 뒤 남은 차이로 다시 재면 1화소대까지 정확해집니다 */
+      tbWarp(mL,wl,w,h,-BS.dx,-BS.dy);
+      for(let i=0;i<n;i++) br[i]=CL[i]-wl[i]-obl;
+      const s2=solveShift(br,bg,n,w); BS.dx+=s2.dx; BS.dy+=s2.dy;
+    }
+    /* 되맞춘 뒤 얼마나 남는가 — 이것이 '배경이 아직 쓸 만한가'의 척도입니다.
+       1차 근사로 재면 0.6화소에서 이미 과하게 나와 멀쩡한 배경을 죽었다고 하므로
+       실제로 되맞춰서 잽니다. 다만 화면 전체를 워프하면 아이패드에서 프레임
+       예산을 넘기므로, **네 화소에 하나만** 그 자리에서 이중선형으로 떠서 봅니다. */
+    const sdx=BS.dx, sdy=BS.dy;
+    let ab=0, cnt=0;
+    for(let y=0;y<h;y+=2){
+      const sy=y+sdy;
+      let y0=Math.floor(sy); if(y0<0)y0=0; if(y0>h-2)y0=h-2;
+      let fy=sy-y0; if(fy<0)fy=0; if(fy>1)fy=1;
+      const r0=y0*w, r1=r0+w, cr=y*w;
+      for(let x=0;x<w;x+=2){
+        const sx=x+sdx;
+        let x0=Math.floor(sx); if(x0<0)x0=0; if(x0>w-2)x0=w-2;
+        let fx=sx-x0; if(fx<0)fx=0; if(fx>1)fx=1;
+        const a0=mL[r0+x0], a1=mL[r0+x0+1], b0=mL[r1+x0], b1=mL[r1+x0+1];
+        const t0=a0+(a1-a0)*fx, t1=b0+(b1-b0)*fx;
+        const v=CL[cr+x]-(t0+(t1-t0)*fy)-obl;
+        ab+= v<0?-v:v; cnt++;
+      }
+    }
+    bres=ab/Math.max(1,cnt);
+    /* 배경 학습 직후 30프레임 = 정렬이 맞는 유일한 구간 → 기준선으로 삼습니다 */
+    if(bg.res0==null||bg.res0<0){
+      bg.resS=(bg.resS||0)+bres; bg.resN=(bg.resN||0)+1;
+      if(bg.resN>=30) bg.res0=bg.resS/bg.resN;
+    }
+  }
+  /* 배경이 죽었는가 — 죽었으면 색 경로는 잠시 쉬게 합니다.
+     되맞추기로 살릴 수 있는 범위를 넘었다는 뜻이므로, 억지로 빼면 가짜 색만
+     만들어 냅니다. 시간 차이 경로는 배경과 무관하므로 그대로 돕니다. */
+  const stale = (bres>=0 && bg.res0>0 && bres > bg.res0*3+3);
+  E.bgShift=BS; E.bgResid=bres; E.bgRes0=bg.res0; E.bgStale=stale;
+  if(stale){
+    if(!E.staleAt||now_-E.staleAt>8000){ E.staleAt=now_;
+      log('태블릿이 배경 학습 때 자리에서 벗어났습니다 — 색 경로를 잠시 멈춥니다. [배경 학습]을 다시 하십시오.'); }
+  }
+  if(chromaOn && bg.mC){
+    /* 0.5화소 아래에서는 되맞춰도 되맞추지 않아도 가짜 색이 임계값의 절반을
+       넘지 않습니다(모의: 0.3화소 4.2 · 0.6화소 6.5, 임계값 12). 그 구간에서는
+       워프를 건너뛰어 아이패드의 프레임 예산을 아낍니다. */
+    const amt=Math.abs(BS.dx)+Math.abs(BS.dy);
+    if(amt>0.5 && !stale){
+      tbWarp(bg.mC,MB.cw,w,h,-BS.dx,-BS.dy);
+      const cw=MB.cw; for(let i=0;i<n;i++) rc[i]-=cw[i];
+    } else {
+      const mC=bg.mC; for(let i=0;i<n;i++) rc[i]-=mC[i];
+    }
+  }
   box3(rl,rl,MB.tp,w,h); bandpass(rl,MB.tp,w,h,n);
   box3(rr,rr,MB.tp,w,h); bandpass(rr,MB.tp,w,h,n);
   /* 3×3 평균으로 화소 잡음을 누르고, 띠통과로 넓게 퍼진 색조 변화를 없앱니다.
@@ -1249,7 +1336,8 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
     if(chromaOn){
       const cabs=rc[i];
       if(cabs>maxChromaAbs){ maxChromaAbs=cabs; mcx=i%w; mcy=(i-i%w)/w; }
-      if(!measureOnly){ const cvv=cabs/TC;
+      /* ★ v4.5 ★ 배경이 죽었으면 값은 그대로 재되(진단용), 탄착 판정에는 쓰지 않습니다. */
+      if(!measureOnly && !stale){ const cvv=cabs/TC;
         if(cvv>v){ v=cvv; if(cabs>zz) zz=cabs; } }
     }
     z[i]=zz;
@@ -1274,7 +1362,11 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
        다만 **색 경로는 흔들림과 무관**하므로, 색으로 확실히 잡힌 것
        (임계값의 1.5배 이상)이 있으면 그 프레임은 살립니다. */
     if(stats.resid>lim){ stats.flood=true; stats.rej.flood=1;
-      if(!(chromaOn && !measureOnly && maxChromaAbs>=TC*1.5)) return {blobs:[],stats}; } }
+      /* ★ v4.5 ★ 구제 배수를 1.5 → 3.0 으로 올리고, 배경이 죽었으면 구제하지 않습니다.
+         흔들린 프레임을 색으로 구제하던 것이 하필 **흔들림 때문에 생긴 가짜 색**
+         이었습니다. 진짜 발이 든 프레임은 버려지고 밀린 링선은 통과하던 이유입니다. */
+      if(!(chromaOn && !measureOnly && !stale && maxChromaAbs>=TC*3.0)) return {blobs:[],stats};
+      stats.rescued=true; } }
   /* ★ 흔들린 프레임이라고 통째로 버리지 않습니다 ★
      현장 진단에서 검증 구간 39프레임이 이 관문에서 버려졌습니다. 태블릿이 조금
      떨리거나 조명이 한 번 흔들린 프레임에 마침 탄착이 있으면 그 발은 사라집니다.
@@ -1306,8 +1398,16 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
     /* 격발 순간 손이 움직이면 점이 짧은 자국으로 늘어납니다. 예전 기준(4배·0.25)은
        그런 진짜 탄착까지 '모양이 이상하다'고 버렸습니다. 인쇄물의 선은 붉은빛
        판별에서 이미 걸리므로 여기서 엄격할 이유가 없습니다. */
-    if(Math.max(bw,bh)/Math.max(1,Math.min(bw,bh))>4){ stats.rej.shape++; continue; }
-    if(area/(bw*bh)<0.25){ stats.rej.shape++; continue; }
+    const _ar=Math.max(bw,bh)/Math.max(1,Math.min(bw,bh)), _fill=area/(bw*bh);
+    /* ★ v4.5 ★ 모양 기준을 느슨히 둔 것은 '인쇄물의 선은 붉은빛 판별에서 이미
+       걸린다'는 전제 때문이었습니다. 흔들려 구제된 프레임에서는 그 전제가 깨지므로
+       (밀린 링선이 붉게 보임) 그 프레임에서만 작고 둥근 것만 받습니다. */
+    if(stats.rescued){
+      if(_ar>2 || _fill<0.45 || area>maxA*0.5){ stats.rej.shape++; continue; }
+    } else {
+      if(_ar>4){ stats.rej.shape++; continue; }
+      if(_fill<0.25){ stats.rej.shape++; continue; }
+    }
     if(sw<=0){ stats.rej.shape++; continue; }
     blobs.push({x:sx/sw+0.5,y:sy/sw+0.5,area,peak,weight:sw,mR:bmR,mL:bmL,mC:bmC});
   }
@@ -2064,6 +2164,7 @@ function tick(){
       const k=1/bg.cnt; bg.mR=new Float32Array(bg.n);bg.mG=new Float32Array(bg.n);bg.mB=new Float32Array(bg.n);
       for(let i=0;i<bg.n;i++){ bg.mR[i]=bg.sR[i]*k;bg.mG[i]=bg.sG[i]*k;bg.mB[i]=bg.sB[i]*k; }
       bg.sR=bg.sG=bg.sB=null;
+      bg.res0=-1; bg.resS=0; bg.resN=0;   /* ★ v4.5 ★ 불일치 기준선 다시 잡기 */
       buildBgChroma(bg,bg.n);
       buildBgGrad(bg,E.pw||E.roi.w,E.ph||E.roi.h); tbReset(); RESID.length=0;
       bg.ready=true; log('배경 학습 완료');
@@ -4242,6 +4343,15 @@ function updProbe(){
   }
   if(pr.cur&&pr.cur.flood)
     h+='<span class="tag bad">화면 전체 변동</span> 카메라가 움직였거나 조명이 바뀌었습니다. <b>배경 학습</b>을 다시 하십시오.<br>';
+  /* ★ v4.5 ★ 배경이 아직 쓸 만한지 숫자로 보여 줍니다. */
+  if(E.bgResid>=0 && E.bgRes0>0){
+    const _r=E.bgResid/E.bgRes0;
+    h+=`<span class="tag ${E.bgStale?'bad':'ok'}">배경 불일치 ${_r.toFixed(1)}배</span> `
+      +(E.bgStale
+        ? `태블릿이 배경 학습 때 자리에서 벗어났습니다. <b>색 경로를 멈춘 상태</b>입니다 — `
+          +`<b>배경 학습</b>을 다시 하면 곧바로 돌아옵니다.<br>`
+        : `배경은 아직 쓸 만합니다 (되맞춘 이동 ${Math.hypot(E.bgShift.dx||0,E.bgShift.dy||0).toFixed(2)}화소).<br>`);
+  }
   if(pr.aeMax>=6)
     h+=`<span class="tag bad">화면 밝기 흔들림 ±${pr.aeMax.toFixed(0)}</span> `
       +`프레임마다 화면 전체가 밝아졌다 어두워집니다. <b>이 상태에서 잰 잡음은 실제보다 훨씬 큽니다</b> — `
