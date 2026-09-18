@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v4.5</title>
+<title>샷라인 SHOTLINE v4.5.1</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -1365,7 +1365,10 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
       /* ★ v4.5 ★ 구제 배수를 1.5 → 3.0 으로 올리고, 배경이 죽었으면 구제하지 않습니다.
          흔들린 프레임을 색으로 구제하던 것이 하필 **흔들림 때문에 생긴 가짜 색**
          이었습니다. 진짜 발이 든 프레임은 버려지고 밀린 링선은 통과하던 이유입니다. */
-      if(!(chromaOn && !measureOnly && !stale && maxChromaAbs>=TC*3.0)) return {blobs:[],stats};
+      /* ★ v4.5.1 ★ 3.0은 과했습니다. 배경이 죽었는지(stale)를 따로 보게 된 뒤로는
+         구제 조항이 가짜 색을 통과시킬 위험이 크게 줄었으므로, 약한 발이 통째로
+         잘리지 않도록 2.2로 내립니다. (v4.4는 1.5)  */
+      if(!(chromaOn && !measureOnly && !stale && maxChromaAbs>=TC*2.2)) return {blobs:[],stats};
       stats.rescued=true; } }
   /* ★ 흔들린 프레임이라고 통째로 버리지 않습니다 ★
      현장 진단에서 검증 구간 39프레임이 이 관문에서 버려졌습니다. 태블릿이 조금
@@ -1403,7 +1406,10 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
        걸린다'는 전제 때문이었습니다. 흔들려 구제된 프레임에서는 그 전제가 깨지므로
        (밀린 링선이 붉게 보임) 그 프레임에서만 작고 둥근 것만 받습니다. */
     if(stats.rescued){
-      if(_ar>2 || _fill<0.45 || area>maxA*0.5){ stats.rej.shape++; continue; }
+      /* ★ v4.5.1 ★ 2배·0.45는 너무 좁았습니다. 격발 순간 손이 움직이면 진짜 탄착도
+         짧은 자국으로 늘어나므로 그런 발까지 잘렸습니다. 3배·0.35로 넓히고
+         면적 상한은 없앱니다(평소 기준 maxA 는 그대로 적용됩니다). */
+      if(_ar>3 || _fill<0.35){ stats.rej.shape++; continue; }
     } else {
       if(_ar>4){ stats.rej.shape++; continue; }
       if(_fill<0.25){ stats.rej.shape++; continue; }
@@ -3551,6 +3557,27 @@ function renderRecord(){
   const first=rs.find(r=>r.session===1), last=rs[rs.length-1];
   const dv=document.getElementById('recDelta');
   let html='';
+  /* ★★ v4.5.1 ★★ 이번 회차의 발수·합계·평균을 먼저 보여 줍니다.
+     비교집단(C)은 10발이 끝나면 이 탭으로 오는데, 회차가 하나뿐이면
+     '회차가 쌓이면 …'만 뜨고 **이번 회차 평균이 어디에도 나오지 않았습니다.**
+     계획서상 측정과 점수 확인은 두 집단이 동일해야 하므로(피드백만 달라야 함),
+     평균·합계·발수는 양쪽 모두에게 보여 줍니다.
+     탄착군·편향·진단은 그대로 실험집단(E) 전용입니다. */
+  {
+    const cur = SES.shots.length ? SES.shots
+              : SHOTS.filter(x=>x.code===SES.stu.code&&x.session===SES.session)
+                     .map(x=>({score:x.score,miss:x.is_miss===1}));
+    if(cur.length){
+      const sum=cur.reduce((a,b)=>a+b.score,0);
+      const miss=cur.filter(s=>s.miss).length;
+      html+=`<dl class="stats" style="margin-bottom:10px">`
+        +`<div><dt>이번 회차 발수</dt><dd>${cur.length}</dd></div>`
+        +`<div><dt>합계</dt><dd>${sum}</dd></div>`
+        +`<div><dt>평균</dt><dd>${(sum/cur.length).toFixed(1)}</dd></div>`
+        +`</dl>`
+        + (miss?`<p class="note" style="margin:0 0 10px">표적 밖 ${miss}발이 0점으로 들어갔습니다.</p>`:'');
+    }
+  }
   if(first&&last&&first!==last){
     html+=`<div class="delta"><div><div class="l">사전 평균</div><div class="v">${first.avg.toFixed(1)}</div></div>`+
       `<div class="a">→</div><div style="text-align:right"><div class="l">최근 평균</div>`+
