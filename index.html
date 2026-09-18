@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v4.5.1</title>
+<title>샷라인 SHOTLINE v4.5.3</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -719,6 +719,17 @@ details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;
     </div>
 
     <div class="card">
+      <h2>기록 지우기</h2>
+      <p class="note" style="margin-top:0">시험 삼아 쏜 기록을 <b>학생 한 명·한 회차 단위</b>로 지웁니다.
+      되돌릴 수 없으니 <b>CSV를 먼저 내려받아</b> 두십시오.</p>
+      <div class="row">
+        <div style="flex:1 1 40%"><label class="fl">학급</label><select id="tcDelCls"></select></div>
+        <div style="flex:1 1 40%"><label class="fl">회차</label><select id="tcDelSes"></select></div>
+      </div>
+      <div id="tcDelList" style="margin-top:9px"></div>
+    </div>
+
+    <div class="card">
       <h2>데이터</h2>
       <dl class="stats q4">
         <div><dt>학생</dt><dd id="tcNStu">0</dd></div>
@@ -909,6 +920,71 @@ let SHOTS=load(K.shots,[]);     // 1발 = 1행
 let ROUNDS=load(K.rounds,[]);   // 1회차 = 1행
 
 function classHasSession1(cls){ return ROUNDS.some(r=>r.cls===cls&&r.session===1); }
+/* ★★ v4.5.2 ★★ 기록을 학생·회차 단위로 지웁니다.
+   그동안은 [데이터 전체 삭제]밖에 없어서, 수업 전 시험 사격 한 번을 지우려면
+   그날 기록 전체를 날려야 했습니다. */
+const DEL={cls:'',ses:0};
+function delOneRound(code,session){
+  const rs=ROUNDS.filter(r=>r.code===code&&r.session===session);
+  if(!rs.length) return;
+  const r=rs[0];
+  const st=ROSTER.students.find(x=>x.cls===r.cls&&String(x.num)===String(r.num));
+  const who=`${r.cls} ${r.num}번 ${r.nick||(st?st.nick:'')}`.trim();
+  const nSh=SHOTS.filter(x=>x.code===code&&x.session===session).length;
+  if(!confirm(`${who} · ${session}회차 기록을 지웁니다.\n\n`
+    +`회차 ${rs.length}건 · 탄착 ${nSh}발 · 평균 ${Number(r.avg).toFixed(1)}점\n\n`
+    +`되돌릴 수 없습니다. 계속하시겠습니까?`)) return;
+  ROUNDS=ROUNDS.filter(x=>!(x.code===code&&x.session===session));
+  SHOTS =SHOTS .filter(x=>!(x.code===code&&x.session===session));
+  /* 아직 안 올라간 대기열도 함께 비웁니다 — 안 그러면 지운 뒤에 올라갑니다. */
+  const pre=code+'|'+session+'|';
+  const before=OUTBOX.length;
+  OUTBOX=OUTBOX.filter(x=>String(x.id).indexOf(pre)!==0);
+  save(K.rounds,ROUNDS); save(K.shots,SHOTS); save(K.outbox,OUTBOX);
+  unlockIfNoSession1(r.cls);
+  log(`${who} ${session}회차 기록 삭제 (탄착 ${nSh}발)`
+      +(before>OUTBOX.length?` · 대기열 ${before-OUTBOX.length}건 취소`:''));
+  if(sbOn()) log('※ 전체 순위 서버에 이미 올라간 기록은 구글 시트에서 직접 지우셔야 합니다.');
+  refreshTeacher(); if(typeof updServerUI==='function') updServerUI();
+}
+/* 1회차 기록이 하나도 남지 않으면 집단 배정 잠금을 풀어 줍니다.
+   (잠금은 '1회차 데이터가 들어왔으니 집단을 못 바꾼다'는 뜻이므로,
+    그 데이터가 사라지면 잠글 근거도 없어집니다) */
+function unlockIfNoSession1(cls){
+  const c=ROSTER.classes[cls];
+  if(c && c.locked && !classHasSession1(cls)){
+    c.locked=false; save(K.roster,ROSTER);
+    log(`${cls}에 1회차 기록이 남지 않아 집단 배정 잠금을 풀었습니다.`);
+  }
+}
+function refreshDelUI(){
+  const selC=document.getElementById('tcDelCls'), selS=document.getElementById('tcDelSes'),
+        box=document.getElementById('tcDelList');
+  if(!selC||!selS||!box) return;
+  const clsList=[...new Set(ROUNDS.map(r=>r.cls))].sort();
+  if(!clsList.length){
+    selC.innerHTML='<option>–</option>'; selS.innerHTML='<option>–</option>';
+    box.innerHTML='<p class="note" style="margin:0">아직 저장된 기록이 없습니다.</p>'; return;
+  }
+  if(clsList.indexOf(DEL.cls)<0) DEL.cls=clsList[0];
+  selC.innerHTML=clsList.map(c=>`<option value="${c}"${c===DEL.cls?' selected':''}>${c}</option>`).join('');
+  const sesList=[...new Set(ROUNDS.filter(r=>r.cls===DEL.cls).map(r=>Number(r.session)))].sort((a,b)=>a-b);
+  if(sesList.indexOf(Number(DEL.ses))<0) DEL.ses=sesList[0];
+  selS.innerHTML=sesList.map(n=>`<option value="${n}"${Number(n)===Number(DEL.ses)?' selected':''}>${n}회차</option>`).join('');
+  const rows=ROUNDS.filter(r=>r.cls===DEL.cls&&Number(r.session)===Number(DEL.ses))
+                   .sort((a,b)=>a.num-b.num);
+  box.innerHTML=rows.length
+    ? `<table><thead><tr><th>번호</th><th>이름</th><th class="n">발수</th><th class="n">평균</th><th></th></tr></thead><tbody>`
+      + rows.map(r=>`<tr><td>${r.num}</td><td>${r.nick||''}</td>`
+        +`<td class="n">${r.n}</td><td class="n">${Number(r.avg).toFixed(1)}</td>`
+        +`<td><button class="danger sm delOne" data-code="${r.code}" data-ses="${r.session}">지우기</button></td></tr>`).join('')
+      + `</tbody></table>`
+    : '<p class="note" style="margin:0">이 학급·회차에는 기록이 없습니다.</p>';
+  selC.onchange=()=>{ DEL.cls=selC.value; DEL.ses=0; refreshDelUI(); };
+  selS.onchange=()=>{ DEL.ses=Number(selS.value); refreshDelUI(); };
+  box.querySelectorAll('.delOne').forEach(b=>b.onclick=()=>
+    delOneRound(b.dataset.code, Number(b.dataset.ses)));
+}
 function refreshLocks(){
   let ch=false;
   Object.keys(ROSTER.classes).forEach(c=>{
@@ -3196,15 +3272,32 @@ function endRound(){
    재측정 시 기존 행과 그 탄착을 지우고 새로 넣되, attempt 로 몇 번째 시도인지 남깁니다. */
 function saveRound(m,opts){
   if(SES.saved&&!(opts&&opts.force)) return;
-  SES.saved=true;
   const base={code:SES.stu.code,cls:SES.stu.cls,num:SES.stu.num,group:SES.stu.group,session:SES.session};
   let attempt=1;
   const prev=ROUNDS.filter(r=>r.code===base.code&&r.session===base.session);
+  /* ★★ v4.5.3 ★★ 부분 사격은 완성된 기록을 덮어쓰지 못합니다.
+     예전에는 학생이 실수로 다시 들어와 **한 발만 쏘고 나가도** 그 1발짜리 기록이
+     제대로 된 10발 기록을 조용히 대체했습니다(exitStudent 가 미완료도 저장하므로).
+     기존 기록이 있는데 이번이 10발을 못 채웠으면, 기존 것을 그대로 두고
+     이번 것은 버립니다. 첫 측정이 미완료인 경우는 예전처럼 그대로 저장됩니다. */
+  if(prev.length && SES.shots.length < CFG.perRound){
+    SES.saved=true;
+    const keep=prev.reduce((a,b)=>((b.attempt||1)>(a.attempt||1)?b:a));
+    log(`${SES.stu.nick} ${SES.session}회차 — 이번에는 ${SES.shots.length}발만 쏘았으므로 `
+      +`기존 기록(${keep.n}발 · 평균 ${Number(keep.avg).toFixed(1)}점)을 그대로 두었습니다. `
+      +`이번 ${SES.shots.length}발은 저장하지 않았습니다.`);
+    return;
+  }
+  SES.saved=true;
   if(prev.length){
     attempt=Math.max(...prev.map(r=>r.attempt||1))+1;
     ROUNDS=ROUNDS.filter(r=>!(r.code===base.code&&r.session===base.session));
     SHOTS=SHOTS.filter(x=>!(x.code===base.code&&x.session===base.session));
     log(`${SES.stu.nick} ${SES.session}회차 재측정 (${attempt}번째 시도) — 이전 기록을 대체했습니다.`);
+    /* 서버에는 시도마다 새 행이 올라가고 이전 행은 남습니다. 순위는 '최고 평균'으로
+       매기므로, 태블릿에서 사라진 1차 시도가 서버 순위에는 계속 반영됩니다. */
+    if(typeof sbOn==='function' && sbOn())
+      log(`※ 순위 서버에는 이전 시도(${SES.stu.code}|${SES.session}|${attempt-1})가 그대로 남습니다 — 필요하면 시트에서 지우십시오.`);
   }
   SES.shots.forEach(s=>SHOTS.push(Object.assign({},base,{
     shot_no:s.no,
@@ -3857,7 +3950,29 @@ document.getElementById('lgEnter').addEventListener('click',()=>{
 function msg(t,cls){ const el=document.getElementById('lgMsg');
   el.innerHTML=`<span class="tag ${cls||''}">${t}</span>`; }
 
+/* 이 학생·이 회차에 이미 저장된 기록(가장 최근 시도)을 돌려줍니다. */
+function priorRound(stu,session){
+  const rs=ROUNDS.filter(r=>r.code===stu.code&&Number(r.session)===Number(session));
+  if(!rs.length) return null;
+  return rs.reduce((a,b)=>((b.attempt||1)>(a.attempt||1)?b:a));
+}
 function enterStudent(stu,session,mismatch){
+  /* ★★ v4.5.3 ★★ 이미 기록이 있으면 들어가기 전에 알립니다.
+     [이 회차 다시 쏘기] 단추에는 확인 창이 있었지만, **나갔다가 다시 입장하는 길에는
+     아무 경고가 없어** 사전·사후 측정 자료가 조용히 바뀔 수 있었습니다. */
+  const prior=priorRound(stu,session);
+  if(prior){
+    if(!confirm(`${stu.nick} 학생은 ${session}회차 기록이 이미 있습니다.\n\n`
+      +`${prior.n}발 · 평균 ${Number(prior.avg).toFixed(1)}점`
+      +(prior.incomplete?' (미완료)':'')+`\n\n`
+      +`여기서 ${CFG.perRound}발을 다시 채우면 그 기록이 대체되고 이전 탄착은 사라집니다.\n`
+      +`${CFG.perRound}발을 채우지 않으면 기존 기록은 그대로 유지됩니다.\n\n`
+      +`계속하시겠습니까?`)){
+      log(`${stu.nick} ${session}회차 재입장 취소 (기존 기록 유지)`);
+      refreshLogin(); return;
+    }
+    log(`${stu.nick} ${session}회차 재입장 — 기존 기록 ${prior.n}발 · 평균 ${Number(prior.avg).toFixed(1)}점`);
+  }
   pinPreview(false);
   /* 교사가 시험 삼아 쏜 발이 학생 화면에 남지 않도록 반드시 비웁니다 */
   if(TEST.on) toggleTest();
@@ -3865,7 +3980,8 @@ function enterStudent(stu,session,mismatch){
   SES.stu=stu; SES.session=session; SES.shots=[]; SES.firing=false;
   SES.coachShownAt=0; SES.coachDwell=0; SES.mismatch=mismatch; SES.saved=false;
   document.getElementById('stWho').textContent=stu.nick;
-  document.getElementById('stMeta').textContent=`${stu.cls} · ${stu.num}번 · ${session}회차`;
+  document.getElementById('stMeta').innerHTML=`${stu.cls} · ${stu.num}번 · ${session}회차`
+    + (prior?` <span class="tag mid">재측정</span>`:'');
   document.getElementById('stProg').textContent=`0/${CFG.perRound}`;
   buildTabs();
   document.getElementById('btnFire').textContent='사격 시작';
@@ -4024,6 +4140,7 @@ function refreshTeacher(){
                :'<span class="tag">대기</span>'}</td></tr>`;
       }).join('')+`</tbody></table>`;
   } else pg.innerHTML='<p class="note" style="margin:0">수업을 먼저 고정하십시오.</p>';
+  refreshDelUI();
 
   // 집단 배정표
   document.getElementById('tcGroups').innerHTML=cls.map(c=>{
