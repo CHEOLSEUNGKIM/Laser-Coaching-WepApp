@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v4.5.5</title>
+<title>샷라인 SHOTLINE v4.6</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -922,6 +922,43 @@ let SHOTS=load(K.shots,[]);     // 1발 = 1행
 let ROUNDS=load(K.rounds,[]);   // 1회차 = 1행
 
 function classHasSession1(cls){ return ROUNDS.some(r=>r.cls===cls&&r.session===1); }
+
+/* ★★★ v4.6 — 한 회차를 여러 번 쏠 수 있습니다 ★★★
+   7·8차시 평가에서 한 차시에 두 번 측정하고 잘 나온 쪽으로 점수를 주기 위한 것입니다.
+   예전에는 두 번째 사격이 첫 번째를 **지우고** 덮어썼습니다. 이제는 모든 시도를
+   남기고, 평균이 가장 높은 시도에 `best=1` 을 답니다.
+     · 평가  → 대표 기록(best)을 씁니다
+     · 논문  → CSV에 두 시도가 다 남으므로 1차 시도만 골라 사전 측정과 대칭을 맞출 수 있습니다
+   동점이면 **먼저 쏜 시도**가 대표입니다(나중 시도가 유리해지지 않게). */
+function attemptsOf(code,session){
+  return ROUNDS.filter(r=>r.code===code&&Number(r.session)===Number(session))
+               .sort((a,b)=>(a.attempt||1)-(b.attempt||1));
+}
+function bestOf(rs){
+  if(!rs||!rs.length) return null;
+  let win=rs[0];
+  for(const r of rs){
+    const a=Number(r.avg)||0, w=Number(win.avg)||0;
+    if(a>w || (a===w && (r.attempt||1)<(win.attempt||1))) win=r;
+  }
+  return win;
+}
+function bestRound(code,session){ return bestOf(attemptsOf(code,session)); }
+/* 저장 직후에 best 표시를 다시 매깁니다 (CSV의 best 열이 이 값입니다) */
+function recomputeBest(code,session){
+  const rs=attemptsOf(code,session), win=bestOf(rs);
+  rs.forEach(r=>{ r.best = (r===win)?1:0; });
+  return win;
+}
+/* 한 학생의 '회차당 대표 기록' 목록 — 그래프·비교는 모두 이것을 씁니다 */
+function bestRoundsOf(code){
+  const by={};
+  ROUNDS.filter(r=>r.code===code).forEach(r=>{
+    const k=Number(r.session);
+    by[k] = by[k] ? bestOf([by[k],r]) : r;
+  });
+  return Object.keys(by).map(k=>by[k]).sort((a,b)=>a.session-b.session);
+}
 /* ★★ v4.5.2 ★★ 기록을 학생·회차 단위로 지웁니다.
    그동안은 [데이터 전체 삭제]밖에 없어서, 수업 전 시험 사격 한 번을 지우려면
    그날 기록 전체를 날려야 했습니다. */
@@ -932,9 +969,11 @@ function delOneRound(code,session){
   const r=rs[0];
   const st=ROSTER.students.find(x=>x.cls===r.cls&&String(x.num)===String(r.num));
   const who=`${r.cls} ${r.num}번 ${r.nick||(st?st.nick:'')}`.trim();
-  const nSh=SHOTS.filter(x=>x.code===code&&x.session===session).length;
+  const nSh=SHOTS.filter(x=>x.code===code&&Number(x.session)===Number(session)).length;
   if(!confirm(`${who} · ${session}회차 기록을 지웁니다.\n\n`
-    +`회차 ${rs.length}건 · 탄착 ${nSh}발 · 평균 ${Number(r.avg).toFixed(1)}점\n\n`
+    +rs.sort((a,b)=>(a.attempt||1)-(b.attempt||1))
+       .map(x=>`${x.attempt||1}차 시도 : ${x.n}발 · 평균 ${Number(x.avg).toFixed(1)}점`).join('\n')
+    +`\n\n시도 ${rs.length}개와 탄착 ${nSh}발이 **모두** 지워집니다.\n`
     +`되돌릴 수 없습니다. 계속하시겠습니까?`)) return;
   ROUNDS=ROUNDS.filter(x=>!(x.code===code&&x.session===session));
   SHOTS =SHOTS .filter(x=>!(x.code===code&&x.session===session));
@@ -3316,15 +3355,16 @@ function saveRound(m,opts){
   SES.saved=true;
   if(prev.length){
     attempt=Math.max(...prev.map(r=>r.attempt||1))+1;
-    ROUNDS=ROUNDS.filter(r=>!(r.code===base.code&&r.session===base.session));
-    SHOTS=SHOTS.filter(x=>!(x.code===base.code&&x.session===base.session));
-    log(`${SES.stu.nick} ${SES.session}회차 재측정 (${attempt}번째 시도) — 이전 기록을 대체했습니다.`);
+    /* ★ v4.6 ★ 예전에는 여기서 이전 시도와 그 탄착을 통째로 지웠습니다.
+       이제는 지우지 않습니다 — 두 시도가 모두 남습니다. */
+    log(`${SES.stu.nick} ${SES.session}회차 ${attempt}번째 시도 — 이전 시도는 그대로 남습니다.`);
     /* 서버에는 시도마다 새 행이 올라가고 이전 행은 남습니다. 순위는 '최고 평균'으로
        매기므로, 태블릿에서 사라진 1차 시도가 서버 순위에는 계속 반영됩니다. */
     if(typeof sbOn==='function' && sbOn())
       log(`※ 순위 서버에는 이전 시도(${SES.stu.code}|${SES.session}|${attempt-1})가 그대로 남습니다 — 필요하면 시트에서 지우십시오.`);
   }
   SES.shots.forEach(s=>SHOTS.push(Object.assign({},base,{
+    attempt,                       /* ★ v4.6 ★ 어느 시도의 탄착인지 */
     shot_no:s.no,
     x_mm:s.manual?'':+s.x.toFixed(2), y_mm:s.manual?'':+s.y.toFixed(2),
     r_mm:s.manual?'':+s.r.toFixed(2),
@@ -3333,7 +3373,7 @@ function saveRound(m,opts){
     frames:s.frames,peak:s.peak,ts:s.ts})));
   ROUNDS.push(Object.assign({},base,{
     nick:SES.stu.nick,
-    n:SES.shots.length, attempt, incomplete: SES.shots.length<CFG.perRound?1:0,
+    n:SES.shots.length, attempt, best:1, incomplete: SES.shots.length<CFG.perRound?1:0,
     avg:+m.avg.toFixed(2),dec:+m.dec.toFixed(2),
     grp_mm:+m.grp.toFixed(2),mpi_dev_mm:+m.mpiDev.toFixed(2),mpi_clock:m.mpiClock,
     hits_max:m.hits10,miss:SES.shots.filter(s=>s.miss).length,
@@ -3342,6 +3382,16 @@ function saveRound(m,opts){
     drill_ids:'',drill_done:0,
     class_mismatch:SES.mismatch?1:0, target_dia:CFG.dia, rings:CFG.rings,
     mm_per_px:+E.mmPerPx.toFixed(4), ts:Date.now()}));
+  /* ★ v4.6 ★ 시도들 중 평균이 가장 높은 것을 대표로 다시 매깁니다 */
+  {
+    const win=recomputeBest(base.code,base.session);
+    if(prev.length && win){
+      const all=attemptsOf(base.code,base.session);
+      log(`${SES.stu.nick} ${SES.session}회차 대표 기록: ${win.attempt}번째 시도 `
+         +`(평균 ${Number(win.avg).toFixed(1)}점) · 시도 ${all.length}개 `
+         +`[${all.map(r=>`${r.attempt}차 ${Number(r.avg).toFixed(1)}`).join(' · ')}]`);
+    }
+  }
   save(K.shots,SHOTS); save(K.rounds,ROUNDS); refreshLocks();
   if(document.getElementById('tcSaveState')) updSaveBar();
   log(`${SES.stu.nick} ${SES.session}회차 저장 · 평균 ${m.avg.toFixed(1)}점`);
@@ -3606,7 +3656,7 @@ function renderCoach(m){
   /* 같은 진단을 몇 번째로 받는지 세어, 회차마다 다른 설명이 나가게 합니다.
      이번 회차 기록은 이미 저장되어 있으므로 세는 데서 빼야 합니다. */
   const code0=diagCode(m);
-  const mine=ROUNDS.filter(r=>r.code===SES.stu.code&&r.session!==SES.session);
+  const mine=bestRoundsOf(SES.stu.code).filter(r=>Number(r.session)!==Number(SES.session));
   const seen=mine.filter(r=>r.diag_code===code0).length;
   const d=diagnose(m,{seen:seen, session:SES.session, basics:mine.length});
   const g=praise(m,SES.shots);
@@ -3657,9 +3707,14 @@ function closeCoach(){
 }
 
 /* ===================== 기록 탭 ===================== */
-function myRounds(){ return ROUNDS.filter(r=>r.code===SES.stu.code).sort((a,b)=>a.session-b.session); }
-function myShots(session){ return SHOTS.filter(s=>s.code===SES.stu.code&&s.session===session)
-  .map(s=>({x:s.x_mm,y:s.y_mm,miss:s.is_miss===1,score:s.score})); }
+function myRounds(){ return bestRoundsOf(SES.stu.code); }   /* ★ v4.6 ★ 회차당 대표 기록 */
+/* ★ v4.6 ★ 대표 시도의 탄착만 그립니다 — 안 그러면 두 시도가 겹쳐 그려집니다.
+   예전 자료에는 시도 번호가 없으므로 1로 봅니다. */
+function myShots(session){
+  const b=bestRound(SES.stu.code,session), at=b?(b.attempt||1):1;
+  return SHOTS.filter(s=>s.code===SES.stu.code&&Number(s.session)===Number(session)
+                      &&(s.attempt||1)===at)
+    .map(s=>({x:s.x_mm,y:s.y_mm,miss:s.is_miss===1,score:s.score})); }
 let recMode='post';
 function renderRecord(){
   const pre=myShots(1).filter(s=>!s.miss);
@@ -3682,30 +3737,36 @@ function renderRecord(){
      평균·합계·발수는 양쪽 모두에게 보여 줍니다.
      탄착군·편향·진단은 그대로 실험집단(E) 전용입니다. */
   {
-    const cur = SES.shots.length ? SES.shots
-              : SHOTS.filter(x=>x.code===SES.stu.code&&Number(x.session)===Number(SES.session))
-                     .map(x=>({score:x.score,miss:x.is_miss===1}));
-    /* ★ v4.5.5 ★ 발별 탄착이 없어도(예전 자료를 불러왔거나 좌표가 지워진 경우)
-       저장된 회차 기록이 있으면 그것으로 보여 줍니다. */
-    const rnd = ROUNDS.filter(r=>r.code===SES.stu.code&&Number(r.session)===Number(SES.session))
-                      .sort((a,b)=>((b.attempt||1)-(a.attempt||1)))[0];
-    let n=0,sum=0,avg=0,miss=0,have=false;
-    if(cur.length){
-      n=cur.length; sum=cur.reduce((a,b)=>a+b.score,0); avg=sum/n;
-      miss=cur.filter(s=>s.miss).length; have=true;
-    } else if(rnd){
-      n=rnd.n||0; avg=Number(rnd.avg)||0; sum=Math.round(avg*n);
-      miss=rnd.miss||0; have=n>0;
-    }
-    if(have){
-      html+=`<dl class="stats" style="margin-bottom:10px">`
-        +`<div><dt>${SES.session}회차 발수</dt><dd>${n}</dd></div>`
+    /* ★★ v4.6 ★★ 시도가 여럿일 수 있으므로 '이번에 쏜 것'과 '평가에 쓰이는 대표
+       기록'을 나누어 보여 줍니다. 예전에는 SHOTS 를 회차로만 걸러서 두 시도의
+       탄착이 합쳐졌습니다(20발 평균 7.5 처럼). */
+    const rnd  = bestRound(SES.stu.code, SES.session);
+    const alls = attemptsOf(SES.stu.code, SES.session);
+    if(SES.shots.length){
+      const n=SES.shots.length, sum=SES.shots.reduce((a,b)=>a+b.score,0);
+      const miss=SES.shots.filter(s=>s.miss).length;
+      const myAtt = alls.length ? (alls[alls.length-1].attempt||1) : 1;
+      html+=`<dl class="stats" style="margin-bottom:6px">`
+        +`<div><dt>${SES.session}회차 ${alls.length>1?myAtt+'차 시도 ':''}발수</dt><dd>${n}</dd></div>`
         +`<div><dt>합계</dt><dd>${sum}</dd></div>`
-        +`<div><dt>평균</dt><dd>${avg.toFixed(1)}</dd></div>`
+        +`<div><dt>평균</dt><dd>${(sum/n).toFixed(1)}</dd></div>`
         +`</dl>`
-        + (miss?`<p class="note" style="margin:0 0 10px">표적 밖 ${miss}발이 0점으로 들어갔습니다.</p>`:'');
+        + (miss?`<p class="note" style="margin:0 0 6px">표적 밖 ${miss}발이 0점으로 들어갔습니다.</p>`:'');
+    } else if(rnd){
+      html+=`<dl class="stats" style="margin-bottom:6px">`
+        +`<div><dt>${SES.session}회차 발수</dt><dd>${rnd.n||0}</dd></div>`
+        +`<div><dt>합계</dt><dd>${Math.round((Number(rnd.avg)||0)*(rnd.n||0))}</dd></div>`
+        +`<div><dt>평균</dt><dd>${(Number(rnd.avg)||0).toFixed(1)}</dd></div>`
+        +`</dl>`
+        + ((rnd.miss||0)?`<p class="note" style="margin:0 0 6px">표적 밖 ${rnd.miss}발이 0점으로 들어갔습니다.</p>`:'');
     } else {
       html+=`<p class="note" style="margin:0 0 10px">${SES.session}회차는 아직 쏘지 않았습니다.</p>`;
+    }
+    /* 두 번 이상 쏜 회차에서는 어느 시도가 평가에 쓰이는지 분명히 알려 줍니다. */
+    if(alls.length>1 && rnd){
+      html+=`<p class="note" style="margin:0 0 10px">`
+        +alls.map(r=>`${r.attempt||1}차 ${Number(r.avg).toFixed(1)}점`).join(' · ')
+        +` → <b>대표는 ${rnd.attempt||1}차 시도(${Number(rnd.avg).toFixed(1)}점)</b>입니다.</p>`;
     }
   }
   if(first&&last&&first!==last){
@@ -4012,11 +4073,13 @@ function enterStudent(stu,session,mismatch){
      아무 경고가 없어** 사전·사후 측정 자료가 조용히 바뀔 수 있었습니다. */
   const prior=priorRound(stu,session);
   if(prior){
+    const _all=attemptsOf(stu.code,session);
     if(!confirm(`${stu.nick} 학생은 ${session}회차 기록이 이미 있습니다.\n\n`
-      +`${prior.n}발 · 평균 ${Number(prior.avg).toFixed(1)}점`
-      +(prior.incomplete?' (미완료)':'')+`\n\n`
-      +`여기서 ${CFG.perRound}발을 다시 채우면 그 기록이 대체되고 이전 탄착은 사라집니다.\n`
-      +`${CFG.perRound}발을 채우지 않으면 기존 기록은 그대로 유지됩니다.\n\n`
+      +_all.map(r=>`${r.attempt}차 시도 : ${r.n}발 · 평균 ${Number(r.avg).toFixed(1)}점`
+                   +(r.incomplete?' (미완료)':'')).join('\n')+`\n\n`
+      +`여기서 ${CFG.perRound}발을 채우면 **${_all.length+1}차 시도로 추가**됩니다.\n`
+      +`이전 시도는 지워지지 않고, 평균이 가장 높은 시도가 평가에 쓰입니다.\n`
+      +`${CFG.perRound}발을 채우지 않으면 아무것도 저장되지 않습니다.\n\n`
       +`계속하시겠습니까?`)){
       log(`${stu.nick} ${session}회차 재입장 취소 (기존 기록 유지)`);
       refreshLogin(); return;
@@ -4057,7 +4120,8 @@ document.getElementById('cFinish').addEventListener('click',exitStudent);
 document.getElementById('rFinish').addEventListener('click',exitStudent);
 document.getElementById('cToRec').addEventListener('click',()=>goTab('record'));
 function redoRound(){
-  if(!confirm('이 회차를 다시 쏘시겠습니까?\n방금 기록은 새 측정으로 대체됩니다.')) return;
+  if(!confirm('이 회차를 다시 쏘시겠습니까?\n\n방금 기록은 지워지지 않고 그대로 남습니다.\n'
+    +'새로 쏜 것이 다음 시도로 추가되고, 평균이 더 높은 쪽이 평가에 쓰입니다.')) return;
   closeCoach();
   SES.shots=[]; SES.saved=false; SES.coachDwell=0; SES.coachShownAt=0;
   goTab('shoot'); updShootUI();
@@ -4168,7 +4232,13 @@ function refreshTeacher(){
   if(lk){
     const list=ROSTER.students.filter(st=>st.cls===lk.cls).sort((a,b)=>a.num-b.num);
     const doneMap={};
-    ROUNDS.filter(r=>r.cls===lk.cls&&r.session===lk.session).forEach(r=>doneMap[r.num]=r);
+    /* ★ v4.6 ★ 시도가 여럿이면 대표(최고 평균)를 보여 주고 시도 수를 함께 적습니다 */
+    const tryMap={};
+    ROUNDS.filter(r=>r.cls===lk.cls&&Number(r.session)===Number(lk.session)).forEach(r=>{
+      tryMap[r.num]=(tryMap[r.num]||0)+1;
+      doneMap[r.num]= doneMap[r.num] ? bestOf([doneMap[r.num],r]) : r;
+    });
+    E._tryMap=tryMap;
     const done=list.filter(st=>doneMap[st.num]).length;
     const allDone = list.length>0 && done===list.length;
     const un=unsavedCount();
@@ -4186,7 +4256,8 @@ function refreshTeacher(){
         return `<tr><td>${st.num}</td><td>${st.nick}</td>`+
           `<td class="n">${r?r.n:'–'}</td><td class="n">${r?r.avg.toFixed(1):'–'}</td>`+
           `<td>${r?(r.incomplete?'<span class="tag mid">미완료</span>':'<span class="tag ok">완료</span>')
-                 +(r.attempt>1?` <span class="tag">재측정 ${r.attempt}</span>`:'')
+                 +(((E._tryMap||{})[st.num]||1)>1
+                    ? ` <span class="tag">시도 ${(E._tryMap||{})[st.num]}개 · 대표 ${r.attempt}차</span>` : '')
                :'<span class="tag">대기</span>'}</td></tr>`;
       }).join('')+`</tbody></table>`;
   } else pg.innerHTML='<p class="note" style="margin:0">수업을 먼저 고정하십시오.</p>';
@@ -4955,8 +5026,8 @@ function toCsv(rows,cols){
   }).join(',')).join('\n');
 }
 const stamp=()=>new Date().toISOString().slice(0,19).replace(/[:T-]/g,'');
-const SHOT_COLS=['code','cls','num','group','session','shot_no','x_mm','y_mm','r_mm','score','dec','is_miss','manual','frames','peak','ts'];
-const ROUND_COLS=['code','cls','num','group','session','n','attempt','incomplete','avg','dec','grp_mm','mpi_dev_mm','mpi_clock','hits_max','miss',
+const SHOT_COLS=['code','cls','num','group','session','attempt','shot_no','x_mm','y_mm','r_mm','score','dec','is_miss','manual','frames','peak','ts'];
+const ROUND_COLS=['code','cls','num','group','session','n','attempt','best','incomplete','avg','dec','grp_mm','mpi_dev_mm','mpi_clock','hits_max','miss',
      'coach_shown','coach_dwell_ms','diag_code','diag_variant','basic_id','praise',
      'prev_session','d_avg','d_grp','d_dev','drill_ids','drill_done','class_mismatch',
      'target_dia','rings','mm_per_px','ts'];
@@ -4984,7 +5055,8 @@ document.getElementById('tcFile').addEventListener('change',ev=>{
       const j=JSON.parse(rd.result);
       let addR=0,addS=0;
       (j.rounds||[]).forEach(r=>{
-        const i=ROUNDS.findIndex(x=>x.code===r.code&&x.session===r.session);
+        const i=ROUNDS.findIndex(x=>x.code===r.code&&Number(x.session)===Number(r.session)
+                                  &&(x.attempt||1)===(r.attempt||1));   /* ★ v4.6 ★ 시도까지 봅니다 */
         if(i>=0){ if((r.ts||0)>(ROUNDS[i].ts||0)){ ROUNDS[i]=r; addR++; } }
         else { ROUNDS.push(r); addR++; }
       });
