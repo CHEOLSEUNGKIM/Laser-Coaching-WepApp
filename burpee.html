@@ -605,7 +605,8 @@ button.ok{background:var(--lamp-on)}
           <div style="flex:1 1 45%"><label class="fl">프레임당 최대 덩어리<i>넘으면 그 프레임 폐기</i></label><input type="number" id="tcMaxB" step="1" min="1" max="8"></div>
           <div style="flex:1 1 45%"><label class="fl">세트당 발수</label><input type="number" id="tcPerRound" step="1" min="1" max="20"></div>
           <div style="flex:1 1 45%"><label class="fl">세트 수</label><input type="number" id="tcSets" step="1" min="1" max="6"></div>
-          <div style="flex:1 1 45%"><label class="fl">실패 1발당 버피 수</label><input type="number" id="tcBurp" step="1" min="1" max="10"></div>
+          <div style="flex:1 1 45%"><label class="fl">세트당 기본 버피<i>불이 하나도 없을 때의 개수</i></label><input type="number" id="tcBurpBase" step="1" min="1" max="60"></div>
+          <div style="flex:1 1 45%"><label class="fl">명중 1발당 감면<i>불 하나에 몇 개를 깎을지</i></label><input type="number" id="tcBurpHit" step="1" min="1" max="20"></div>
           <div style="flex:1 1 45%"><label class="fl">색 임계값<i>붉은 정도 · 낮을수록 민감</i></label><input type="number" id="tcChroma" step="1" min="6"></div>
           <div style="flex:1 1 45%"><label class="fl">적색 임계값</label><input type="number" id="tcRed" step="1"></div>
           <div style="flex:1 1 45%"><label class="fl">밝기 임계값</label><input type="number" id="tcLum" step="1"></div>
@@ -660,7 +661,7 @@ const CFG=Object.assign({
   perRound:5, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
   redOnly:true, calibratedAt:0, sound:true, soundVol:0.7, missMargin:0.15, chroma:12,
   thLock:false, thLockAt:0, mgV2:0,
-  sets:2, burpPerFail:3
+  sets:2, burpBase:10, burpPerHit:2
 }, (function(){
   /* ★ 저장 자리를 논문 앱과 나눕니다 ★
      같은 주소에 샷라인 v4.4 가 있으면 그 설정(표적 위치·임계값)을 처음 한 번
@@ -2737,7 +2738,13 @@ const BUR={ set:1, shots:[], hist:[], firing:false, startedAt:0 };
 
 function perSet(){ const n=parseInt(CFG.perRound,10); return (isFinite(n)&&n>0)?n:5; }
 function nSets(){ const n=parseInt(CFG.sets,10); return (isFinite(n)&&n>0)?n:2; }
-function perFail(){ const n=parseInt(CFG.burpPerFail,10); return (isFinite(n)&&n>0)?n:3; }
+/* ★ 감면 방식 ★ 세트마다 기본 버피를 깔아 두고, 불이 켜질 때마다 깎습니다.
+   실패에 벌을 더하는 방식은 못 쏜 학생일수록 운동량이 늘어 다음 세트를 더
+   망치는 악순환이 생깁니다. 감면으로 두면 운동량 차이가 좁혀지고,
+   학생도 '벌'이 아니라 '보상'으로 받아들입니다. */
+function burpBase(){ const n=parseInt(CFG.burpBase,10); return (isFinite(n)&&n>=0)?n:10; }
+function perHit(){ const n=parseInt(CFG.burpPerHit,10); return (isFinite(n)&&n>=0)?n:2; }
+function burpFor(lit){ return Math.max(0, burpBase()-lit*perHit()); }
 /* 검정색(흑심)의 반지름 — 158mm 표적·흑심비율 0.4 이면 31.6mm(= 7점권) */
 function blackR(){ return (CFG.dia*(CFG.blackRatio||0.4))/2; }
 /* 흑심 바깥 경계가 몇 점 선인지 — 안내문에만 씁니다 */
@@ -2885,24 +2892,24 @@ function updShootUI(){
   if(bp) bp.textContent=`불 ${lit}/${N}`;
   const bm=document.getElementById('bsProgMsg');
   if(bm){ const last=BUR.shots[BUR.shots.length-1];
-    bm.textContent = last ? `${last.hit?'성공':'실패'} · 남은 ${Math.max(0,N-BUR.shots.length)}발`
-                          : '검정색 안을 맞히십시오'; }
+    bm.textContent = last ? `${last.hit?'성공 · 버피 −'+perHit():'실패'} · 버피 ${burpFor(lit)}개 · 남은 ${Math.max(0,N-BUR.shots.length)}발`
+                          : `검정색 안을 맞히십시오 · 지금은 버피 ${burpBase()}개`; }
   const pr=document.getElementById('bProg');
   if(pr) pr.textContent=`${BUR.shots.length}/${N}`;
   const me=document.getElementById('bMeta');
-  if(me) me.textContent=`${BUR.set}세트 · 불 ${lit}개 · 실패 ${BUR.shots.length-lit}개`;
+  if(me) me.textContent=`${BUR.set}세트 · 불 ${lit}개 · 지금 기준 버피 ${burpFor(lit)}개`;
   const sl=document.getElementById('shList');
   if(sl) sl.innerHTML=BUR.shots.map(s=>
     `<li class="${s.hit?'':'miss'}"><span class="no">${s.no}발</span>`+
     `<span class="pos">${s.manual?'직접 입력':`x ${s.x.toFixed(1)} · y ${s.y.toFixed(1)} mm · ${s.miss?'표적 밖':s.score+'점'}`}</span>`+
-    `<span class="sc">${s.hit?'불 켜짐':'버피 '+perFail()}</span></li>`).join('');
+    `<span class="sc">${s.hit?'불 켜짐 −'+perHit():'실패'}</span></li>`).join('');
   renderSetBar();
 }
 /* ---------- 세트 종료 ---------- */
 function endSet(){
   stopFire(); playDone();
   const N=perSet(), lit=BUR.shots.filter(s=>s.hit).length, fail=BUR.shots.length-lit;
-  const burp=fail*perFail();
+  const burp=burpFor(lit);
   BUR.hist[BUR.set-1]={set:BUR.set,lit,fail,burp,shots:BUR.shots.slice()};
   const last = BUR.set>=nSets();
   document.getElementById('rsLabel').textContent=`${BUR.set}세트 · 해야 할 버피`;
@@ -2910,8 +2917,8 @@ function endSet(){
   box.classList.toggle('zero',burp===0);
   document.getElementById('rsN').innerHTML=`${burp}<small>개</small>`;
   document.getElementById('rsWhy').innerHTML= burp===0
-    ? `<b>${N}발 모두 검정색 안</b> — 버피 없이 바로 넘어갑니다.`
-    : `불 <b>${lit}</b>개 · 실패 <b>${fail}</b>발 × ${perFail()}개 = <b>버피 ${burp}개</b>`;
+    ? `불 <b>${lit}</b>개 · ${burpBase()} − ${lit}×${perHit()} = <b>0</b> — 버피 없이 바로 넘어갑니다.`
+    : `기본 <b>${burpBase()}</b>개 − 불 <b>${lit}</b>개 × ${perHit()}개 = <b>버피 ${burp}개</b>`;
   document.getElementById('rsLamps').innerHTML=lampHTML(BUR.shots,N);
   document.getElementById('rsNext').textContent = last ? '버피를 마쳤습니다 · 전체 결과'
                                                        : `버피를 마쳤습니다 · ${BUR.set+1}세트 사격`;
@@ -3036,7 +3043,8 @@ function inheritFromShotline(){
   if(q) save(QK.quad,q);
   const r=load('sl.manR',null); if(r!=null) save(QK.manR,r);
   if(c){ Object.keys(c).forEach(k=>{ if(k==='serverUrl'||k==='serverKey') return; CFG[k]=c[k]; });
-         CFG.perRound=perSet(); CFG.sets=nSets(); CFG.burpPerFail=perFail(); saveCfg(); }
+         CFG.perRound=perSet(); CFG.sets=nSets();
+         CFG.burpBase=burpBase(); CFG.burpPerHit=perHit(); saveCfg(); }
   log('샷라인 설정을 가져왔습니다 — [카메라 시작]을 다시 눌러 주십시오.');
   alert('가져왔습니다.\n[카메라 시작]을 다시 누르면 표적 위치가 복원됩니다.\n그 뒤 [배경 학습]만 하시면 됩니다.');
   refreshTeacher();
@@ -3045,7 +3053,8 @@ document.getElementById('tcInherit').addEventListener('click',inheritFromShotlin
 
 function refreshTeacher(){
   const cfgMap=[['tcPreset','preset'],['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],
-                ['tcPerRound','perRound'],['tcSets','sets'],['tcBurp','burpPerFail'],
+                ['tcPerRound','perRound'],['tcSets','sets'],
+                ['tcBurpBase','burpBase'],['tcBurpHit','burpPerHit'],
                 ['tcRed','red'],['tcLum','lum'],
                 ['tcBlack','blackRatio'],['tcMinA','minA'],['tcMinF','minF'],['tcChroma','chroma'],
                 ['tcMargin','missMargin'],['tcCool','cool'],['tcMaxB','maxBlobs']];
@@ -3057,8 +3066,10 @@ function updRule(){
   const el=document.getElementById('tcRule'); if(!el) return;
   el.innerHTML=`검정색(흑심) 반지름 <b>${blackR().toFixed(1)}mm</b> — `
     +`<b>${blackRing()}점권까지</b> 성공으로 봅니다. 그 밖은 표적 안이라도 실패입니다.<br>`
-    +`한 세트 <b>${perSet()}발</b> · <b>${nSets()}세트</b> · 실패 1발당 버피 <b>${perFail()}개</b> `
-    +`(한 세트 최대 ${perSet()*perFail()}개).`;
+    +`한 세트 <b>${perSet()}발</b> · <b>${nSets()}세트</b>.<br>`
+    +`버피는 <b>감면 방식</b>입니다 — 세트마다 기본 <b>${burpBase()}개</b>에서 `
+    +`불 하나당 <b>${perHit()}개</b>씩 깎습니다 `
+    +`(${perSet()}발 전부 명중 ${burpFor(perSet())}개 · 전부 실패 ${burpBase()}개).`;
 }
 
 { const cb=document.getElementById('tcRedOnly');
@@ -3118,7 +3129,7 @@ document.getElementById('tcPreset').addEventListener('change',ev=>{
   if(p&&p.calib==null) alert('LaserHIT 표적은 네 귀퉁이 25M 마커 사이 거리를 자로 재어\n[캘리브레이션 기준]에 직접 입력하셔야 합니다.');
 });
 [['tcCalibMm','calib'],['tcDia','dia'],['tcRings','rings'],['tcPerRound','perRound'],
- ['tcSets','sets'],['tcBurp','burpPerFail'],
+ ['tcSets','sets'],['tcBurpBase','burpBase'],['tcBurpHit','burpPerHit'],
  ['tcRed','red'],['tcLum','lum'],['tcBlack','blackRatio'],['tcMinA','minA'],
  ['tcMinF','minF'],['tcCool','cool'],['tcMaxB','maxBlobs'],['tcChroma','chroma'],
  ['tcMargin','missMargin']].forEach(([id,k])=>{
@@ -3649,7 +3660,7 @@ if(location.protocol!=='https:'&&location.hostname!=='localhost')
   log('⚠ HTTPS가 아닙니다. 카메라 권한이 거부될 수 있습니다.');
 /* 테스트용 노출 — 카메라 없이 흐름을 검증하기 위한 것입니다. */
 window.__LB={BUR,E,CFG,ringMm,blackR,isHit,bigShot,playScoreCue,pinPreview,
-  perSet,nSets,perFail,beginFire,stopFire,endSet,nextStep,resetAll,addManual,undoShot,
+  perSet,nSets,burpBase,perHit,burpFor,beginFire,stopFire,endSet,nextStep,resetAll,addManual,undoShot,
   laneVerdict, refreshTeacher,
   _guard(on){ E.guardOff=!on; return !E.guardOff; },
   _dup(on){ E.dupOff=!on; return !E.dupOff; },
