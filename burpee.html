@@ -262,7 +262,6 @@ body.fs #loupe.lo-bot{bottom:76px;top:auto}
   max-height:130px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
 details summary{font-size:13px;color:var(--lane);cursor:pointer;font-weight:600;padding:5px 0}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-
 /* ==================== 레이저 버피 ==================== */
 :root{ --lamp-off:#2A2E35; --lamp-on:#2FA97C; --lamp-bad:#E2452F; }
 .lamps{display:flex;gap:8px;justify-content:center;margin:0 0 10px}
@@ -351,7 +350,6 @@ button.ok{background:var(--lamp-on)}
     </div>
   </div>
 </div>
-
 <!-- ==================== 레이저 버피 ==================== -->
 <section class="screen on" id="scMain"><div class="wrap">
   <div class="stHead" id="stHead">
@@ -412,8 +410,6 @@ button.ok{background:var(--lamp-on)}
     </div>
   </div>
 </div></section>
-
-<!-- ==================== 교사 ==================== -->
 <section class="screen" id="scTeacher"><div class="wrap">
   <h1>교사 설정</h1>
   <p class="sub">SHOTLINE TEACHER</p>
@@ -661,11 +657,14 @@ const CFG=Object.assign({
   perRound:5, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
   redOnly:true, calibratedAt:0, sound:true, soundVol:0.7, missMargin:0.15, chroma:12,
   thLock:false, thLockAt:0, mgV2:0, burpV2:0,
+  /* ★ v4.5.4 ★ 마지막 [신호 측정]에서 잰 레이저 세기. 새로고침해도 남습니다. */
+  lastSig:0, lastSigAe:0, lastSigAt:0,
   sets:2, burpBase:15, burpPerHit:3
 }, (function(){
   /* ★ 저장 자리를 논문 앱과 나눕니다 ★
-     같은 주소에 샷라인 v4.4 가 있으면 그 설정(표적 위치·임계값)을 처음 한 번
-     물려받되, 이 앱이 저장하는 곳은 lb.* 입니다. 논문 앱 설정은 건드리지 않습니다. */
+     같은 주소에 샷라인이 있으면 그 설정(표적 위치·임계값·기억된 레이저 세기)을
+     처음 한 번 물려받되, 이 앱이 저장하는 곳은 lb.* 입니다.
+     논문 앱의 설정과 기록은 건드리지 않습니다. */
   var mine=load(K.cfg,null);
   if(mine) return mine;
   var s=load('sl.cfg',null);
@@ -845,6 +844,7 @@ function buildBgGrad(bg,w,h){
       gy[i]=0.5*((y<h-1?A[i+w]:A[i])-(y>0?A[i-w]:A[i])); }
     return {gx,gy};
   };
+  bg.mL=L;                       /* ★ v4.5 ★ 배경 밝기 지도를 보관합니다 */
   const a=mk(L), b=mk(Xc);
   const gm=new Float32Array(n);
   for(let i=0;i<n;i++) gm[i]=Math.hypot(a.gx[i],a.gy[i]);
@@ -927,11 +927,15 @@ let RED_AND=true;    // 붉은빛으로 가려낼지 (기본 켬)
 let RED_RATIO=0.4;   // '붉은 정도 ÷ 밝기'가 이 값 미만이면 무채색으로 보고 버립니다
 let CHROMA_TH=12;    // 색 경로 임계값(0~255 절대값) — CFG.chroma 와 동기화
 let GRAD_K=0;
-const MB={rl:null,rr:null,rc:null,tp:null,al:null,ar:null,z:null,bd:null,n:0,key:''};
+const MB={rl:null,rr:null,rc:null,tp:null,al:null,ar:null,z:null,bd:null,
+          br:null,cw:null,wl:null,n:0,key:''};
 function mbEnsure(n,key){
   if(MB.n<n){ MB.rl=new Float32Array(n);MB.rr=new Float32Array(n);MB.rc=new Float32Array(n);MB.tp=new Float32Array(n);
     MB.al=new Float32Array(n);MB.ar=new Float32Array(n);MB.z=new Float32Array(n);
-    MB.bd=new Uint8Array(n); MB.n=n; MB.key=''; }
+    MB.bd=new Uint8Array(n);
+    /* ★ v4.5 ★ br=배경 대비 밝기차 · cw=되맞춘 색 배경 · wl=되맞춘 배경 밝기 */
+    MB.br=new Float32Array(n); MB.cw=new Float32Array(n); MB.wl=new Float32Array(n);
+    MB.n=n; MB.key=''; }
   if(MB.key!==key){ MB.al.fill(0); MB.ar.fill(0); MB.key=key; }
 }
 function box3(src,dst,tmp,w,h){
@@ -984,12 +988,14 @@ const SCL=[1,1,1,1], SCR=[1,1,1,1];
    9999 를 넘기면 색 경로를 끕니다(자동 보정 중 잡음만 잴 때). */
 function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
   const n=w*h,d=img.data;
+  const now_=performance.now();
   if(!bg||!bg.mR||bg.mR.length<n) return {blobs:[],stats:{maxRed:0,maxLum:0,flood:false,redAt:null,lumAt:null}};
   ensure(n); mbEnsure(n,w+'x'+h);
   const ae=aeOffset(d,bg,n); E.aeLast=ae;
   const oR=ae.r,oG=ae.g,oB=ae.b;
+  const obl=0.30*oR+0.59*oG+0.11*oB;
   const wgt=buf.w,lum=buf.l,lab=buf.lb,st=buf.st;
-  const rl=MB.rl,rr=MB.rr,rc=MB.rc,al=MB.al,ar=MB.ar,z=MB.z,bd=MB.bd;
+  const rl=MB.rl,rr=MB.rr,rc=MB.rc,al=MB.al,ar=MB.ar,z=MB.z,bd=MB.bd,br=MB.br;
   /* thC 규칙
        (안 넘김) → CFG.chroma 로 판정
        -1        → 색을 재기만 하고 판정에는 쓰지 않음 (자동 보정용)
@@ -1043,7 +1049,9 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
        무채색이라 이 값이 0 근처입니다. */
     if(chromaOn){
       const g2=d[p+1], b2=d[p+2];
-      rc[i]=(d[p]-(g2>b2?g2:b2)) - bg.mC[i];
+      /* ★★ v4.5 ★★ 여기서는 '지금의 붉은 정도'만 담습니다.
+         배경 색 지도를 빼는 일은 아래에서, 태블릿이 밀린 만큼 되맞춘 뒤 합니다. */
+      rc[i]=(d[p]-(g2>b2?g2:b2));
     }
     lum[i]= yd>0 ? yd/(yb>REF_BG?yb:REF_BG) : 0;
     drift+= yd>0?yd:-yd;
@@ -1059,6 +1067,84 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
       drift=ab; }
   }
   E.shift=SH;
+  /* ★★★ v4.5 — 색 경로가 태블릿 흔들림에 무너지던 것을 고칩니다 ★★★
+
+     시간 차이 경로는 세 프레임을 부분화소로 겹쳐(tbWarp) 비교하므로 흔들림에
+     강했습니다. 그런데 색 경로만은 배경 학습 때 찍은 색 지도(bg.mC)를 화소 위치
+     그대로 빼고 있었습니다. "색은 흔들림과 무관하다"는 말은 **조명·노출 변화**에
+     대해서만 맞고, **카메라가 실제로 움직이는 것**에는 가장 약한 경로였습니다.
+
+     모의실험(렌즈 흐림 1화소·색수차 0.25%) 기준, 되맞추지 않았을 때의 가짜 색:
+        0.3화소 4.2 · 0.6화소 6.5 · 1.2화소 12.3 · 2.4화소 19.6
+     색 임계값이 12, 한 프레임 단독 인정 기준이 19이므로 1화소만 밀려도
+     유령탄착이 나옵니다. 되맞추면 같은 구간이 3~4로 내려갑니다.
+
+     ★ 다만 이동량 추정은 1.2화소까지만 믿을 수 있습니다.
+       3화소를 넘어가면 추정이 무너지면서 오히려 '안 움직였다'고 보고합니다
+       (모의실험: 실제 9.8화소 → 0.27로 보고). 그래서 이동량으로 판정하지 않고
+       **배경 불일치량**으로 판정합니다. 이 값은 정렬이 맞을 때의 기준선 대비
+       0.3~1.2화소에서 7~12배, 2.4화소에서 35배, 3.7화소 이상에서 130배 넘게
+       올라가 깨끗하게 갈립니다. */
+  let BS={dx:0,dy:0}, bres=-1;
+  if(bg.mL && bg.gxL && bg.gradN===n){
+    const CL=TB.L[iCur], mL=bg.mL, wl=MB.wl;
+    for(let i=0;i<n;i++) br[i]=CL[i]-mL[i]-obl;
+    let s1=solveShift(br,bg,n,w); BS.dx=s1.dx; BS.dy=s1.dy;
+    if(Math.abs(BS.dx)>0.25||Math.abs(BS.dy)>0.25){
+      /* 한 번 되맞춘 뒤 남은 차이로 다시 재면 1화소대까지 정확해집니다 */
+      tbWarp(mL,wl,w,h,-BS.dx,-BS.dy);
+      for(let i=0;i<n;i++) br[i]=CL[i]-wl[i]-obl;
+      const s2=solveShift(br,bg,n,w); BS.dx+=s2.dx; BS.dy+=s2.dy;
+    }
+    /* 되맞춘 뒤 얼마나 남는가 — 이것이 '배경이 아직 쓸 만한가'의 척도입니다.
+       1차 근사로 재면 0.6화소에서 이미 과하게 나와 멀쩡한 배경을 죽었다고 하므로
+       실제로 되맞춰서 잽니다. 다만 화면 전체를 워프하면 아이패드에서 프레임
+       예산을 넘기므로, **네 화소에 하나만** 그 자리에서 이중선형으로 떠서 봅니다. */
+    const sdx=BS.dx, sdy=BS.dy;
+    let ab=0, cnt=0;
+    for(let y=0;y<h;y+=2){
+      const sy=y+sdy;
+      let y0=Math.floor(sy); if(y0<0)y0=0; if(y0>h-2)y0=h-2;
+      let fy=sy-y0; if(fy<0)fy=0; if(fy>1)fy=1;
+      const r0=y0*w, r1=r0+w, cr=y*w;
+      for(let x=0;x<w;x+=2){
+        const sx=x+sdx;
+        let x0=Math.floor(sx); if(x0<0)x0=0; if(x0>w-2)x0=w-2;
+        let fx=sx-x0; if(fx<0)fx=0; if(fx>1)fx=1;
+        const a0=mL[r0+x0], a1=mL[r0+x0+1], b0=mL[r1+x0], b1=mL[r1+x0+1];
+        const t0=a0+(a1-a0)*fx, t1=b0+(b1-b0)*fx;
+        const v=CL[cr+x]-(t0+(t1-t0)*fy)-obl;
+        ab+= v<0?-v:v; cnt++;
+      }
+    }
+    bres=ab/Math.max(1,cnt);
+    /* 배경 학습 직후 30프레임 = 정렬이 맞는 유일한 구간 → 기준선으로 삼습니다 */
+    if(bg.res0==null||bg.res0<0){
+      bg.resS=(bg.resS||0)+bres; bg.resN=(bg.resN||0)+1;
+      if(bg.resN>=30) bg.res0=bg.resS/bg.resN;
+    }
+  }
+  /* 배경이 죽었는가 — 죽었으면 색 경로는 잠시 쉬게 합니다.
+     되맞추기로 살릴 수 있는 범위를 넘었다는 뜻이므로, 억지로 빼면 가짜 색만
+     만들어 냅니다. 시간 차이 경로는 배경과 무관하므로 그대로 돕니다. */
+  const stale = (bres>=0 && bg.res0>0 && bres > bg.res0*3+3);
+  E.bgShift=BS; E.bgResid=bres; E.bgRes0=bg.res0; E.bgStale=stale;
+  if(stale){
+    if(!E.staleAt||now_-E.staleAt>8000){ E.staleAt=now_;
+      log('태블릿이 배경 학습 때 자리에서 벗어났습니다 — 색 경로를 잠시 멈춥니다. [배경 학습]을 다시 하십시오.'); }
+  }
+  if(chromaOn && bg.mC){
+    /* 0.5화소 아래에서는 되맞춰도 되맞추지 않아도 가짜 색이 임계값의 절반을
+       넘지 않습니다(모의: 0.3화소 4.2 · 0.6화소 6.5, 임계값 12). 그 구간에서는
+       워프를 건너뛰어 아이패드의 프레임 예산을 아낍니다. */
+    const amt=Math.abs(BS.dx)+Math.abs(BS.dy);
+    if(amt>0.5 && !stale){
+      tbWarp(bg.mC,MB.cw,w,h,-BS.dx,-BS.dy);
+      const cw=MB.cw; for(let i=0;i<n;i++) rc[i]-=cw[i];
+    } else {
+      const mC=bg.mC; for(let i=0;i<n;i++) rc[i]-=mC[i];
+    }
+  }
   box3(rl,rl,MB.tp,w,h); bandpass(rl,MB.tp,w,h,n);
   box3(rr,rr,MB.tp,w,h); bandpass(rr,MB.tp,w,h,n);
   /* 3×3 평균으로 화소 잡음을 누르고, 띠통과로 넓게 퍼진 색조 변화를 없앱니다.
@@ -1094,7 +1180,8 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
     if(chromaOn){
       const cabs=rc[i];
       if(cabs>maxChromaAbs){ maxChromaAbs=cabs; mcx=i%w; mcy=(i-i%w)/w; }
-      if(!measureOnly){ const cvv=cabs/TC;
+      /* ★ v4.5 ★ 배경이 죽었으면 값은 그대로 재되(진단용), 탄착 판정에는 쓰지 않습니다. */
+      if(!measureOnly && !stale){ const cvv=cabs/TC;
         if(cvv>v){ v=cvv; if(cabs>zz) zz=cabs; } }
     }
     z[i]=zz;
@@ -1119,7 +1206,14 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
        다만 **색 경로는 흔들림과 무관**하므로, 색으로 확실히 잡힌 것
        (임계값의 1.5배 이상)이 있으면 그 프레임은 살립니다. */
     if(stats.resid>lim){ stats.flood=true; stats.rej.flood=1;
-      if(!(chromaOn && !measureOnly && maxChromaAbs>=TC*1.5)) return {blobs:[],stats}; } }
+      /* ★ v4.5 ★ 구제 배수를 1.5 → 3.0 으로 올리고, 배경이 죽었으면 구제하지 않습니다.
+         흔들린 프레임을 색으로 구제하던 것이 하필 **흔들림 때문에 생긴 가짜 색**
+         이었습니다. 진짜 발이 든 프레임은 버려지고 밀린 링선은 통과하던 이유입니다. */
+      /* ★ v4.5.1 ★ 3.0은 과했습니다. 배경이 죽었는지(stale)를 따로 보게 된 뒤로는
+         구제 조항이 가짜 색을 통과시킬 위험이 크게 줄었으므로, 약한 발이 통째로
+         잘리지 않도록 2.2로 내립니다. (v4.4는 1.5)  */
+      if(!(chromaOn && !measureOnly && !stale && maxChromaAbs>=TC*2.2)) return {blobs:[],stats};
+      stats.rescued=true; } }
   /* ★ 흔들린 프레임이라고 통째로 버리지 않습니다 ★
      현장 진단에서 검증 구간 39프레임이 이 관문에서 버려졌습니다. 태블릿이 조금
      떨리거나 조명이 한 번 흔들린 프레임에 마침 탄착이 있으면 그 발은 사라집니다.
@@ -1151,8 +1245,19 @@ function detect(img,bg,w,h,thRed,thLum,minA,maxA,thC){
     /* 격발 순간 손이 움직이면 점이 짧은 자국으로 늘어납니다. 예전 기준(4배·0.25)은
        그런 진짜 탄착까지 '모양이 이상하다'고 버렸습니다. 인쇄물의 선은 붉은빛
        판별에서 이미 걸리므로 여기서 엄격할 이유가 없습니다. */
-    if(Math.max(bw,bh)/Math.max(1,Math.min(bw,bh))>4){ stats.rej.shape++; continue; }
-    if(area/(bw*bh)<0.25){ stats.rej.shape++; continue; }
+    const _ar=Math.max(bw,bh)/Math.max(1,Math.min(bw,bh)), _fill=area/(bw*bh);
+    /* ★ v4.5 ★ 모양 기준을 느슨히 둔 것은 '인쇄물의 선은 붉은빛 판별에서 이미
+       걸린다'는 전제 때문이었습니다. 흔들려 구제된 프레임에서는 그 전제가 깨지므로
+       (밀린 링선이 붉게 보임) 그 프레임에서만 작고 둥근 것만 받습니다. */
+    if(stats.rescued){
+      /* ★ v4.5.1 ★ 2배·0.45는 너무 좁았습니다. 격발 순간 손이 움직이면 진짜 탄착도
+         짧은 자국으로 늘어나므로 그런 발까지 잘렸습니다. 3배·0.35로 넓히고
+         면적 상한은 없앱니다(평소 기준 maxA 는 그대로 적용됩니다). */
+      if(_ar>3 || _fill<0.35){ stats.rej.shape++; continue; }
+    } else {
+      if(_ar>4){ stats.rej.shape++; continue; }
+      if(_fill<0.25){ stats.rej.shape++; continue; }
+    }
     if(sw<=0){ stats.rej.shape++; continue; }
     blobs.push({x:sx/sw+0.5,y:sy/sw+0.5,area,peak,weight:sw,mR:bmR,mL:bmL,mC:bmC});
   }
@@ -1804,8 +1909,27 @@ function autoCalTick(now){
   /* 잡음 상위 5%의 두 배 — 현장에서 이 값으로 "딱 쏜 것만" 잡혔습니다. */
   /* ★ v4.0 ★ 잡음만 보고 정한 값이 신호에 비해 너무 높아지지 않게 막습니다.
      [신호 측정]을 한 적이 있으면 그때 잰 레이저 세기를 상한으로 씁니다. */
-  const _pvT=(E.probe&&(E.probe.red>0||E.probe.lum>0))?E.probe:null;
-  const th=Math.round(Math.max(45, Math.min(p95*2, thCap(_pvT, aeUnstable(_pvT)))));
+  /* ★★ v4.5.4 ★★ 레이저 세기를 아는 경우에는 [신호 측정]과 **똑같은 계산**을 씁니다.
+     같은 상황인데 두 곳이 서로 다르게 계산하고 있었습니다.
+       · 배경 학습 : 잡음 **상위 5%** × 2          (신호를 안 봄)
+       · 신호 측정 : 잡음 **중앙값** × 3, 신호의 42% 이내   (autoTh)
+     실제 레이저에 맞춰 조정된 쪽은 신호 측정입니다("신호의 절반을 하한으로 썼더니
+     다섯 발 중 두세 발이 잘렸다"는 기록이 주석에 남아 있습니다).
+     그래서 세기를 아는 동안에는 그 규칙을 그대로 따릅니다.
+     아직 한 번도 신호 측정을 안 했으면 예전처럼 잡음만 보고 보수적으로 잡습니다. */
+  const _med=a.length? a[Math.floor(a.length/2)] : 0;
+  const _pvT=liveProbe();
+  let th, _how;
+  if(_pvT){
+    const _cap=thCap(_pvT, aeUnstable(_pvT));
+    th=Math.round(Math.max(45, Math.min(3.0*_med, _cap)));
+    _how=`잡음 중앙값 ${_med.toFixed(0)}×3 = ${Math.round(3*_med)}, 신호 상한 ${Math.round(_cap)}`
+        +(_pvT._remembered?` (기억된 세기 ${CFG.lastSig})`:` (방금 잰 세기 ${Math.round(Math.max(_pvT.red||0,_pvT.lum||0))})`);
+  } else {
+    th=Math.round(Math.max(45, p95*2));
+    _how=`잡음 상위5% ${p95.toFixed(0)}×2 — 레이저 세기를 아직 모릅니다. `
+        +`[신호 측정]을 한 번만 해 두시면 다음부터 이 값이 더 정확해집니다`;
+  }
   /* ★ 색 임계값도 함께 정합니다 (아래 C 항목) ★ */
   const ca=ACAL.c.slice().sort((x,y)=>x-y);
   const c95=ca.length? ca[Math.min(ca.length-1,Math.floor(ca.length*0.95))] : 0;
@@ -1852,8 +1976,10 @@ function autoCalTick(now){
     badge.textContent='준비 완료';
     const risky = th > CFG.red*1.4;          // 잡음이 늘어 지금 값이 낮아졌을 수 있다
     const wasteful = th*1.6 < CFG.red;       // 잡음이 줄어 지금 값이 필요 이상으로 높다
-    log(`임계값 고정 유지: 적색 ${CFG.red} · 색 ${CFG.chroma>=900?'끔':CFG.chroma}`
-       +`  (지금 잡음 기준이라면 ${th} / 색 ${_wantChroma>=900?'끔':_wantChroma})`);
+    log(`임계값 고정 유지: 적색 ${CFG.red}`
+       +` = 지금 잡음 중앙값 ${_med.toFixed(0)} 의 ${_med>0?(CFG.red/_med).toFixed(1):'–'}배`
+       +` · 색 ${CFG.chroma>=900?'끔':CFG.chroma}`
+       +`  (지금 기준으로 새로 정한다면 ${th} / 색 ${_wantChroma>=900?'끔':_wantChroma})`);
     if(risky){
       log(`⚠ 배경 잡음이 고정할 때보다 커졌습니다 (권장 ${th} > 지금 ${CFG.red}). `
          +`유령 탄착이 나오면 [신호 측정]을 다시 해 주십시오.`);
@@ -1871,7 +1997,9 @@ function autoCalTick(now){
   CFG.chroma=_wantChroma;
   saveCfg();
   badge.textContent='준비 완료';
-  log(`자동 보정 완료: 잡음 상위 ${p95.toFixed(0)} → 임계값 ${th} · 색 잡음 ${c95.toFixed(0)} → 색 임계값 ${_chromaOff?'끔':CFG.chroma}`);
+  log(`자동 보정 완료: 임계값 ${th} = 잡음의 ${_med>0?(th/_med).toFixed(1):'–'}배`
+     +`  [${_how}]`
+     +`  · 색 잡음 ${c95.toFixed(0)} → 색 임계값 ${_chromaOff?'끔':CFG.chroma}`);
   if(_chromaOff){
     log(`⚠ 색 경로를 껐습니다 — [신호 측정]에서 레이저의 붉은 정도 ${Math.round(_pv.chroma)} 가 `
        +`배경 잡음 ${Math.round(_pv.nc||0)} 을 넘지 못했습니다. 어떤 임계값을 넣어도 가려낼 수 없습니다. `
@@ -1909,6 +2037,7 @@ function tick(){
       const k=1/bg.cnt; bg.mR=new Float32Array(bg.n);bg.mG=new Float32Array(bg.n);bg.mB=new Float32Array(bg.n);
       for(let i=0;i<bg.n;i++){ bg.mR[i]=bg.sR[i]*k;bg.mG[i]=bg.sG[i]*k;bg.mB[i]=bg.sB[i]*k; }
       bg.sR=bg.sG=bg.sB=null;
+      bg.res0=-1; bg.resS=0; bg.resN=0;   /* ★ v4.5 ★ 불일치 기준선 다시 잡기 */
       buildBgChroma(bg,bg.n);
       buildBgGrad(bg,E.pw||E.roi.w,E.ph||E.roi.h); tbReset(); RESID.length=0;
       bg.ready=true; log('배경 학습 완료');
@@ -2845,7 +2974,6 @@ function undoShot(){
   log(`직전 발 취소: ${s.manual?'직접 입력 ':''}${s.hit?'성공':'실패'}`);
   updShootUI();
 }
-
 function fitBigVideo(){
   const v=document.getElementById('video');
   if(!document.body.classList.contains('bigshot')){ v.style.width=''; v.style.height=''; return; }
@@ -2867,6 +2995,19 @@ function bigShot(on){
   document.body.classList.toggle('bigshot', !!on);
   fitBigVideo();
   setTimeout(()=>{ fitBigVideo(); resizeOverlay(); },60);
+}
+function metrics(shots){
+  const hit=shots.filter(s=>!s.miss);
+  if(!hit.length) return {avg:0,dec:0,grp:0,mpiDev:0,mpiClock:'–',hits10:0};
+  const mx=hit.reduce((a,b)=>a+b.x,0)/hit.length, my=hit.reduce((a,b)=>a+b.y,0)/hit.length;
+  let g=0;
+  for(let i=0;i<hit.length;i++) for(let j=i+1;j<hit.length;j++)
+    g=Math.max(g,Math.hypot(hit[i].x-hit[j].x,hit[i].y-hit[j].y));
+  const deg=(Math.atan2(mx,my)*180/Math.PI+360)%360, hr=Math.round(deg/30)||12;
+  return { avg:shots.reduce((a,b)=>a+b.score,0)/shots.length,
+           dec:shots.reduce((a,b)=>a+b.dec,0)/shots.length,
+           grp:g, mpiDev:Math.hypot(mx,my), mpiClock:hr+'시', mpiX:mx, mpiY:my,
+           hits10:hit.filter(s=>s.score===CFG.rings).length };
 }
 /* ===================== 화면 갱신 ===================== */
 function lampHTML(shots,n){
@@ -2992,7 +3133,6 @@ function stopFire(){ BUR.firing=false; E.mode='idle'; badge.textContent='정지'
   bigShot(false);
   const b=document.getElementById('btnFire'); if(b) b.textContent='사격 시작';
   updShootUI(); }
-
 /* ===================== 화면 전환 ===================== */
 function showScreen(id){
   ['scMain','scTeacher'].forEach(s=>{
@@ -3082,7 +3222,6 @@ function updRule(){
     +`불 하나당 <b>${perHit()}개</b>씩 깎습니다 `
     +`(${perSet()}발 전부 명중 ${burpFor(perSet())}개 · 전부 실패 ${burpBase()}개).`;
 }
-
 { const cb=document.getElementById('tcRedOnly');
   cb.checked=CFG.redOnly!==false; RED_AND=cb.checked;
   cb.addEventListener('change',()=>{ CFG.redOnly=cb.checked; RED_AND=cb.checked; saveCfg();
@@ -3296,6 +3435,27 @@ function bgBrightness(){
    발마다 세기가 두 배쯤 차이 나는 것은 정상이라, 약한 발이 통째로 잘려
    인식률이 60%로 떨어졌습니다. 잘 되던 날은 임계값이 신호의 25%였습니다.
    그래서 '잡음의 몇 배'가 아무리 크게 나와도 신호의 일정 비율을 넘지 못하게 합니다. */
+/* ★★ v4.5.4 ★★ 레이저 세기를 기기에 기억시킵니다.
+   예전에는 잰 값이 E.probe(메모리)에만 있어서 **앱을 새로 열면 사라졌습니다.**
+   그러면 배경 학습의 자동 보정에 신호 상한이 걸리지 않아, 잡음만 보고 임계값을
+   정하게 되고 실제 레이저보다 높게 잡힐 수 있었습니다. 레이저 총은 그대로이므로
+   세기는 잘 변하지 않습니다 — 한 번만 재 두면 계속 씁니다. */
+function rememberedProbe(){
+  if(!(CFG.lastSig>0)) return null;
+  return {red:CFG.lastSig, lum:CFG.lastSig, aeMax:CFG.lastSigAe||0, _remembered:true};
+}
+function liveProbe(){
+  if(E.probe && (E.probe.red>0||E.probe.lum>0)) return E.probe;
+  return rememberedProbe();
+}
+function rememberSig(pr){
+  const sig=Math.max((pr&&pr.red)||0,(pr&&pr.lum)||0);
+  if(!(sig>0)) return;
+  CFG.lastSig=Math.round(sig); CFG.lastSigAe=Math.round((pr&&pr.aeMax)||0);
+  CFG.lastSigAt=Date.now(); saveCfg();
+  log(`레이저 세기 ${CFG.lastSig} 를 기기에 기억했습니다 — 이제 배경 학습만 해도 `
+     +`[신호 측정]과 같은 방식으로 임계값이 잡힙니다.`);
+}
 function thCap(pr, aeBad){
   const sig=Math.max((pr&&pr.red)||0,(pr&&pr.lum)||0);
   if(!(sig>0)) return Infinity;
@@ -3336,6 +3496,15 @@ function updProbe(){
   }
   if(pr.cur&&pr.cur.flood)
     h+='<span class="tag bad">화면 전체 변동</span> 카메라가 움직였거나 조명이 바뀌었습니다. <b>배경 학습</b>을 다시 하십시오.<br>';
+  /* ★ v4.5 ★ 배경이 아직 쓸 만한지 숫자로 보여 줍니다. */
+  if(E.bgResid>=0 && E.bgRes0>0){
+    const _r=E.bgResid/E.bgRes0;
+    h+=`<span class="tag ${E.bgStale?'bad':'ok'}">배경 불일치 ${_r.toFixed(1)}배</span> `
+      +(E.bgStale
+        ? `태블릿이 배경 학습 때 자리에서 벗어났습니다. <b>색 경로를 멈춘 상태</b>입니다 — `
+          +`<b>배경 학습</b>을 다시 하면 곧바로 돌아옵니다.<br>`
+        : `배경은 아직 쓸 만합니다 (되맞춘 이동 ${Math.hypot(E.bgShift.dx||0,E.bgShift.dy||0).toFixed(2)}화소).<br>`);
+  }
   if(pr.aeMax>=6)
     h+=`<span class="tag bad">화면 밝기 흔들림 ±${pr.aeMax.toFixed(0)}</span> `
       +`프레임마다 화면 전체가 밝아졌다 어두워집니다. <b>이 상태에서 잰 잡음은 실제보다 훨씬 큽니다</b> — `
@@ -3411,8 +3580,16 @@ function updProbe(){
   const ap=document.getElementById('pvApply');
   if(ap) ap.onclick=()=>{
     const g=autoTh(pr); CFG.red=g; CFG.lum=g; CFG.calibratedAt=Date.now();
-    saveCfg(); refreshTeacher();
-    log(`임계값 1차 설정: 잡음의 ${(g/10).toFixed(1)}배 — 이제 검증합니다`);
+    saveCfg();
+    rememberSig(pr);          /* ★ v4.5.4 ★ 세기를 기기에 남깁니다 */
+    refreshTeacher();
+    /* 예전 문구 `잡음의 ${(g/10)}배` 는 틀린 표기였습니다. 10으로 나눈 값은
+       '잡음의 몇 배'가 아니라 그냥 임계값을 10으로 나눈 수입니다.
+       실제 배수는 임계값 ÷ 잡음이고, 규칙상 3배 근처입니다. */
+    const _nz=Math.max(pr.noiseRed||0,pr.noiseLum||0);
+    const _sg=Math.max(pr.red||0,pr.lum||0);
+    log(`임계값 1차 설정: ${g} = 잡음 ${_nz.toFixed(0)} 의 ${_nz>0?(g/_nz).toFixed(1):'–'}배`
+       +` · 신호 ${_sg.toFixed(0)} 의 ${_sg>0?Math.round(g/_sg*100):'–'}% — 이제 검증합니다`);
     startVerify();
   };
 }
@@ -3450,6 +3627,7 @@ function endVerify(ok){
     /* ★ v4.1 ★ 검증까지 통과한 값은 고정합니다 — 다음에 배경 학습을 다시 해도
        덮어쓰지 않습니다. 이 한 줄이 '수업 때마다 신호 측정을 다시 하는' 일을 없앱니다. */
     CFG.thLock=true; CFG.thLockAt=Date.now(); saveCfg();
+    rememberSig(E.probe);     /* 검증에서 임계값이 올라갔을 수 있으므로 세기를 다시 남깁니다 */
     adv.innerHTML=`<span class="tag ok">검증 통과</span> 3초 동안 유령 탄착 <b>0건</b>. `
       +`임계값 <b>적색 ${CFG.red} · 밝기 ${CFG.lum} · 색 ${CFG.chroma>=900?'끔':CFG.chroma}</b> 로 확정했습니다.<br>`
       +`<b>이 값은 고정되었습니다.</b> 다음부터는 배경 학습을 다시 해도 지워지지 않으므로, `
