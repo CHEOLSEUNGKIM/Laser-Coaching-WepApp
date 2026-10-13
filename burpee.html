@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>샷라인 SHOTLINE v4.4</title>
+<title>레이저 버피</title>
 <style>
 /* ==========================================================================
    샷라인 학생·교사 앱 — 저사양 태블릿 대응 (그라디언트/그림자/블러 미사용)
@@ -660,8 +660,8 @@ const CFG=Object.assign({
   preset:'custom',mode:'square',calib:158,dia:158,rings:10,
   perRound:5, blackRatio:0.4, red:45,lum:45,minA:4,maxA:900,minF:2,cool:400,maxBlobs:3,
   redOnly:true, calibratedAt:0, sound:true, soundVol:0.7, missMargin:0.15, chroma:12,
-  thLock:false, thLockAt:0, mgV2:0,
-  sets:2, burpBase:10, burpPerHit:2
+  thLock:false, thLockAt:0, mgV2:0, burpV2:0,
+  sets:2, burpBase:15, burpPerHit:3
 }, (function(){
   /* ★ 저장 자리를 논문 앱과 나눕니다 ★
      같은 주소에 샷라인 v4.4 가 있으면 그 설정(표적 위치·임계값)을 처음 한 번
@@ -705,6 +705,17 @@ const ENGINE_VER=8;
   if((CFG.missMargin!=null?CFG.missMargin:0.15) < 0.45) CFG.missMargin=0.45;
   CFG.mgV2=1; save(K.cfg,CFG);
   setTimeout(()=>log('표적 밖 감지 범위를 넓혔습니다 — 표적 반지름의 1.45배까지 봅니다.'),320);
+})();
+/* ★ 버피 규칙 일회성 이관 (v1.2) ★
+   기본 10개·감면 2개로는 '조준하지 않고 난사한 뒤 버피로 때우는' 쪽이
+   시간상 유리했습니다. 버피 1개(약 3초)가 조준 1발(약 5초)보다 싸기 때문입니다.
+   기본 15개·감면 3개로 올리면 무차별 지점이 10발 중 7발에서 5발로 내려와
+   조준하는 쪽이 유리해집니다. 태블릿에 예전 값이 남아 있어도 한 번 덮어씁니다
+   (교사가 그 뒤에 바꾼 값은 그대로 유지됩니다). */
+(function migrateBurp(){
+  if(CFG.burpV2) return;
+  CFG.burpBase=15; CFG.burpPerHit=3; CFG.burpV2=1; save(K.cfg,CFG);
+  setTimeout(()=>log('버피 규칙을 바꿨습니다 — 세트당 기본 15개, 명중 1발당 3개 감면.'),340);
 })();
 function saveCfg(){ save(K.cfg,CFG); MAXB=CFG.maxBlobs||3; RED_AND=CFG.redOnly!==false;
   CHROMA_TH=CFG.chroma||12;
@@ -2742,8 +2753,8 @@ function nSets(){ const n=parseInt(CFG.sets,10); return (isFinite(n)&&n>0)?n:2; 
    실패에 벌을 더하는 방식은 못 쏜 학생일수록 운동량이 늘어 다음 세트를 더
    망치는 악순환이 생깁니다. 감면으로 두면 운동량 차이가 좁혀지고,
    학생도 '벌'이 아니라 '보상'으로 받아들입니다. */
-function burpBase(){ const n=parseInt(CFG.burpBase,10); return (isFinite(n)&&n>=0)?n:10; }
-function perHit(){ const n=parseInt(CFG.burpPerHit,10); return (isFinite(n)&&n>=0)?n:2; }
+function burpBase(){ const n=parseInt(CFG.burpBase,10); return (isFinite(n)&&n>=0)?n:15; }
+function perHit(){ const n=parseInt(CFG.burpPerHit,10); return (isFinite(n)&&n>=0)?n:3; }
 function burpFor(lit){ return Math.max(0, burpBase()-lit*perHit()); }
 /* 검정색(흑심)의 반지름 — 158mm 표적·흑심비율 0.4 이면 31.6mm(= 7점권) */
 function blackR(){ return (CFG.dia*(CFG.blackRatio||0.4))/2; }
